@@ -172,5 +172,93 @@ class TestReadNoWrite(unittest.TestCase):
         self.assertGreaterEqual(n, 0)
 
 
+class TestSearchMultiCategoryScope(unittest.TestCase):
+    """search_multi category/scope 过滤不泄漏（t_ae019ae4 修复回归）"""
+
+    def setUp(self):
+        self.tmp = make_tmp_db()
+        self.db = MemoryDB(db_path=self.tmp)
+        self.db._embed = lambda text: [0.01] * 64  # 固定维度，让语义信号在线
+        self.db.set("cat/protocol-1", "协议铁律：必须先备份再升级", category="protocol", embed=True)
+        self.db.set("cat/protocol-2", "流程规则：变更必须走评审", category="protocol", embed=True)
+        self.db.set("cat/env-1", "环境配置：GPU 驱动版本 550", category="env", embed=True)
+        self.db.set("cat/env-2", "环境路径：/home/joe 配置说明", category="env", embed=True)
+
+    def tearDown(self):
+        try:
+            self.db._conn.close()
+        except Exception:
+            pass
+        try:
+            os.remove(self.tmp)
+        except Exception:
+            pass
+
+    def test_category_protocol_only_returns_protocol(self):
+        r = self.db.search_multi("必须", limit=10, category="protocol")
+        self.assertGreaterEqual(len(r), 1)
+        for d in r:
+            self.assertEqual(d["category"], "protocol")
+
+    def test_category_env_only_returns_env(self):
+        r = self.db.search_multi("配置", limit=10, category="env")
+        self.assertGreaterEqual(len(r), 1)
+        for d in r:
+            self.assertEqual(d["category"], "env")
+
+    def test_no_match_query_still_respects_category(self):
+        # 查询无任何命中时，recency 信号是全量扫描——之前会把别的 category 拉进来（泄漏）
+        r = self.db.search_multi("zzzz绝对无匹配词", limit=10, category="protocol")
+        for d in r:
+            self.assertEqual(d["category"], "protocol")
+
+
+class TestSetUpsertPreservesVerify(unittest.TestCase):
+    """set() 同 key 重写保留 confidence/verification_status（t_ae019ae4 修复，issue #3）"""
+
+    def setUp(self):
+        self.tmp = make_tmp_db()
+        self.db = MemoryDB(db_path=self.tmp)
+
+    def tearDown(self):
+        try:
+            self.db._conn.close()
+        except Exception:
+            pass
+        try:
+            os.remove(self.tmp)
+        except Exception:
+            pass
+
+    def test_upsert_preserves_confidence_and_status(self):
+        self.db.set("upsert/test", "初始内容：GPU 价格 550 块", category="env", embed=False)
+        # 制造"已验证 + 高置信度"状态
+        self.db._conn.execute(
+            "UPDATE memories SET confidence=0.88, verification_status='verified', "
+            "provenance='{\"v\": \"verified\"}' WHERE key=?",
+            ("upsert/test",)
+        )
+        self.db._conn.commit()
+        # 同 key 重写——不应把 confidence/verification_status 重置掉
+        self.db.set("upsert/test", "更新内容：GPU 价格降到 500 块", category="env", embed=False)
+        row = self.db._conn.execute(
+            "SELECT confidence, verification_status, content FROM memories WHERE key=?",
+            ("upsert/test",)
+        ).fetchone()
+        self.assertEqual(row["confidence"], 0.88)
+        self.assertEqual(row["verification_status"], "verified")
+        self.assertEqual(row["content"], "更新内容：GPU 价格降到 500 块")
+
+    def test_new_key_gets_pending(self):
+        # 新 key 插入仍然走默认：verification_status=pending，confidence 为启发式初值
+        self.db.set("upsert/new", "新记忆内容：端口配置说明", category="env", embed=False)
+        row = self.db._conn.execute(
+            "SELECT confidence, verification_status FROM memories WHERE key=?",
+            ("upsert/new",)
+        ).fetchone()
+        self.assertEqual(row["verification_status"], "pending")
+        self.assertGreaterEqual(row["confidence"], 0.15)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

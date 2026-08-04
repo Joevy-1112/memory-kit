@@ -508,6 +508,10 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                      "len": len(content), "cat": category}
         provenance_final = json.dumps(prov_data) if not provenance else provenance
 
+        # 2026-08-04 修复（issue #3，审查 t_70aa36b8）：
+        # 同 key 重写是"内容更新"而非"重新学习"，与 learn() 合并语义对齐——
+        # confidence 和 verification_status 保留旧值，不重置为 pending/默认值，
+        # 否则验证过的高置信度记忆会被一次普通 set() 打回原形。
         self._conn.execute("""
             INSERT INTO memories(key, content, category, tags, scope, importance, ttl,
                 created_at, updated_at, accessed_at,
@@ -529,8 +533,6 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                 decay_profile=excluded.decay_profile,
                 provenance=excluded.provenance,
                 water=excluded.water,
-                confidence=excluded.confidence,
-                verification_status=excluded.verification_status,
                 updated_at=excluded.updated_at,
                 accessed_at=excluded.accessed_at
         """, (key, content, category, tags, scope, importance, ttl, now, now, now,

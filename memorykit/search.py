@@ -134,9 +134,16 @@ class MemorySearch:
             c.isdigit() or c in "xXabcdef_-.@:" for c in query
         ) and any(c.isalpha() or c == "0" for c in query)
         if len(fts) == 0 and _is_code_query:
+            # 兜底 LIKE 路径同样要按 category/scope 过滤（审查修复 #2）
+            like_conds = ["content LIKE ? OR key LIKE ?"]
+            like_params = [f"%{query}%", f"%{query}%"]
+            if category:
+                like_conds.append("category = ?"); like_params.append(category)
+            if scope:
+                like_conds.append("scope = ?"); like_params.append(scope)
             like_rows = self._conn.execute(
-                "SELECT * FROM memories WHERE content LIKE ? OR key LIKE ? LIMIT ?",
-                (f"%{query}%", f"%{query}%", limit * 2)
+                "SELECT * FROM memories WHERE " + " AND ".join(like_conds) + " LIMIT ?",
+                (*like_params, limit * 2)
             ).fetchall()
             fts = [dict(r) for r in like_rows]
 
@@ -166,34 +173,52 @@ class MemorySearch:
         sem_results = []
         if qvec:
             qvec_np = np.array(qvec, dtype=np.float32)
+            # 维度安全（2026-08-04 修复，同 learn()/db.py search_semantic）：
+            # 库里可能混有不同嵌入模型产生的向量（如 1024d/2048d），必须按
+            # 当前查询向量维度 qdim 过滤，否则 np.array 批量拼接抛
+            # ValueError: inhomogeneous shape。
+            qdim = int(qvec_np.size)
+            # category/scope 过滤与 FTS 信号对齐（审查修复 #2）
+            sem_conds = ["vector IS NOT NULL"]
+            sem_params = []
+            if category:
+                sem_conds.append("category = ?"); sem_params.append(category)
+            if scope:
+                sem_conds.append("scope = ?"); sem_params.append(scope)
             all_rows = self._conn.execute(
-                "SELECT key, vector, vector_bin FROM memories WHERE vector IS NOT NULL", []
+                "SELECT key, vector, vector_bin FROM memories WHERE "
+                + " AND ".join(sem_conds), sem_params
             ).fetchall()
             
-            # Fast path: binary blobs
+            # Fast path: binary blobs（按 qdim 过滤后再批量拼接）
             blobs = []
             keys = []
             for r in all_rows:
-                if r["vector_bin"] is not None:
+                if (r["vector_bin"] is not None
+                        and self._vector_dim_from_blob(r["vector_bin"]) == qdim):
                     blobs.append(r["vector_bin"])
                     keys.append(r["key"])
             
-            if blobs:
-                vecs_np = np.array([np.frombuffer(b, dtype=np.float32) for b in blobs])
-                dots = np.dot(vecs_np, qvec_np)
-                norms_v = np.linalg.norm(vecs_np, axis=1)
-                norm_q = np.linalg.norm(qvec_np)
-                if norm_q > 0:
-                    scores = dots / np.maximum(norms_v * norm_q, 1e-10)
-                else:
-                    scores = np.zeros(len(blobs))
-                for i, key in enumerate(keys):
-                    sem_results.append({"_sem_score": float(scores[i]), "key": key})
-            else:
-                # Fallback: JSON parse
+            try:
+                if blobs:
+                    vecs_np = np.array([np.frombuffer(b, dtype=np.float32) for b in blobs])
+                    dots = np.dot(vecs_np, qvec_np)
+                    norms_v = np.linalg.norm(vecs_np, axis=1)
+                    norm_q = np.linalg.norm(qvec_np)
+                    if norm_q > 0:
+                        scores = dots / np.maximum(norms_v * norm_q, 1e-10)
+                    else:
+                        scores = np.zeros(len(blobs))
+                    for i, key in enumerate(keys):
+                        sem_results.append({"_sem_score": float(scores[i]), "key": key})
+            except Exception:
+                sem_results = []  # 批量路径兜底：失败则走下方 JSON 慢路径
+
+            if not sem_results:
+                # Fallback: JSON parse（同样做维度过滤）
                 for r in all_rows:
                     v = json.loads(r["vector"]) if r.get("vector") else None
-                    if v:
+                    if v and len(v) == qdim:
                         sem_results.append({"_sem_score": self._cosine_similarity(qvec, v), "key": r["key"]})
             
             sem_results.sort(key=lambda x: x["_sem_score"], reverse=True)
@@ -204,9 +229,15 @@ class MemorySearch:
         # Signal 3: Tags
         tag_results = []
         q_lower, q_tokens = query.lower(), query.lower().split()
+        # category/scope 过滤与 FTS 信号对齐（审查修复 #2）
+        tag_conds = ["(ttl IS NULL OR (julianday('now')-julianday(created_at))*86400 < ttl)"]
+        tag_params = []
+        if category:
+            tag_conds.append("category = ?"); tag_params.append(category)
+        if scope:
+            tag_conds.append("scope = ?"); tag_params.append(scope)
         all_rows = self._conn.execute(
-            "SELECT * FROM memories WHERE (ttl IS NULL OR "
-            "(julianday('now')-julianday(created_at))*86400 < ttl)", []
+            "SELECT * FROM memories WHERE " + " AND ".join(tag_conds), tag_params
         ).fetchall()
         for r in all_rows:
             d = dict(r); score = 0.0
@@ -234,15 +265,30 @@ class MemorySearch:
             for key, ents in sorted(hits.items(), key=lambda x: -len(x[1])):
                 row = self._conn.execute("SELECT * FROM memories WHERE key=?", (key,)).fetchone()
                 if row:
-                    d = dict(row); d["_entity_score"] = len(ents)/max(len(q_entities),1)
+                    d = dict(row)
+                    # category/scope 过滤与 FTS 信号对齐（审查修复 #2）
+                    if category and d.get("category") != category:
+                        continue
+                    if scope and d.get("scope") != scope:
+                        continue
+                    d["_entity_score"] = len(ents)/max(len(q_entities),1)
                     d["_entity_matches"] = ents; entity_results.append(d)
         entity_rank = {r["key"]: i+1 for i, r in enumerate(entity_results)}
 
         # Signal 5: Recency
         import math as _math
         now_jd = self._conn.execute("SELECT julianday('now')").fetchone()[0]
+        # category/scope 过滤与 FTS 信号对齐（审查修复 #2）
+        recency_conds = []
+        recency_params = []
+        if category:
+            recency_conds.append("category = ?"); recency_params.append(category)
+        if scope:
+            recency_conds.append("scope = ?"); recency_params.append(scope)
+        recency_where = (" WHERE " + " AND ".join(recency_conds)) if recency_conds else ""
         recency_rows = self._conn.execute(
-            "SELECT key, julianday(created_at) as jd FROM memories"
+            "SELECT key, julianday(created_at) as jd FROM memories" + recency_where,
+            recency_params
         ).fetchall()
         days_rank = [(r["key"], max(0, now_jd - r["jd"])) for r in recency_rows]
         days_rank.sort(key=lambda x: x[1])
@@ -284,6 +330,12 @@ class MemorySearch:
             row = self._conn.execute("SELECT * FROM memories WHERE key=?", (key,)).fetchone()
             if row:
                 d = dict(row)
+                # 兜底（审查修复 #2）：最终结果再按 category/scope 过滤一次，
+                # 保证 'category=protocol 只返回 protocol' 不变量，即使某个信号漏过滤也不泄漏。
+                if category and d.get("category") != category:
+                    continue
+                if scope and d.get("scope") != scope:
+                    continue
                 _base = _fused_scores.get(key, 0.0)
                 # 环3 验证回流 + 环4 时间感知：最终得分 = 融合分 × verification × time
                 # （verified 前移 / disputed、STALE 沉底；近期记忆优先，老记忆保底 30%）
