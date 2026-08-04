@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Hermes SQLite Memory DB — 可检索、可过期、无上限的记忆系统。
+memory-kit — SQLite 记忆库核心模块。
+
+可检索、可过期、可纠正的记忆存储（嵌入服务可选，缺失时自动降级）。
 
 Usage:
-    python memory_db.py set <key> <content> [--category CAT] [--tags TAG,TAG] [--scope PERM|SESSION|TEMP] [--importance 0-1] [--ttl SEC]
-    python memory_db.py get <key>
-    python memory_db.py search <query> [--category CAT] [--tags TAG] [--scope SCOPE] [--limit N]
-    python memory_db.py delete <key>
-    python memory_db.py stats
-    python memory_db.py cleanup
-    python memory_db.py export <filepath>
-    python memory_db.py import <filepath>
+    python -m memorykit.db set <key> <content> [--category CAT] [--tags TAG,TAG] [--scope PERM|SESSION|TEMP] [--importance 0-1] [--ttl SEC]
+    python -m memorykit.db get <key>
+    python -m memorykit.db search <query> [--category CAT] [--tags TAG] [--scope SCOPE] [--limit N]
+    python -m memorykit.db delete <key>
+    python -m memorykit.db stats
+    python -m memorykit.db cleanup
+    python -m memorykit.db export <filepath>
+    python -m memorykit.db import <filepath>
 """
 
 import sqlite3
@@ -989,7 +991,7 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         # Important: old memory vectors may be 1024d while the currently running
         # embedding service can return 2048d (Qwen3-VL).  Do not let an online
         # but dimension-incompatible service crash search/prefetch; skip
-        # incompatible vectors so callers can fall back to FTS/RRF.
+        # incompatible vectors so callers can fall back to FTS/fusion.
         blobs = []
         indices = []
         for idx, r in enumerate(rows):
@@ -1510,7 +1512,7 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
 # ---------------------------------------------------------------------------
 
 def _cli():
-    parser = argparse.ArgumentParser(description="Hermes SQLite Memory DB")
+    parser = argparse.ArgumentParser(description="memory-kit — SQLite 记忆库 CLI")
     sub = parser.add_subparsers(dest="cmd")
 
     p_set = sub.add_parser("set", help="Write a memory entry")
@@ -1534,7 +1536,7 @@ def _cli():
     p_search.add_argument("--semantic", action="store_true",
                           help="Use embedding-based semantic search instead of FTS5")
     p_search.add_argument("--multi", action="store_true",
-                          help="Multi-signal: FTS5 + semantic + tags fused via RRF")
+                          help="Multi-signal: FTS5 + semantic + tags weighted fusion")
 
     p_del = sub.add_parser("delete", help="Delete a memory by key")
     p_del.add_argument("key")

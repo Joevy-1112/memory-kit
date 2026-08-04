@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""memorykit — 给 AI 用的轻量记忆系统库。
+"""memorykit — 给 AI agent 用的轻量本地记忆库。
 
-可检索、可过期、可纠正的 SQLite 记忆系统：
-  - MemoryDB        主类：建库/写入/检索/置信度引擎/纠正闭环/知识图谱（继承两个 mixin）
-  - MemorySearch    mixin：FTS5 + 语义 + 实体三路检索 RRF 融合 + VERIFY_WEIGHTS 验证回流
-  - MemoryLifecycle mixin：age() 遗忘状态机 + 艾宾浩斯衰减 + learn() 自动学习
+可检索、可过期、可纠正的 SQLite 记忆存储：
+  - MemoryDB        主类：建库/写入/检索/置信度/纠正（correction() 降置信+置 disputed）/
+                    实体关联层（继承两个 mixin）
+  - MemorySearch    mixin：FTS5 + 语义 + 实体多路检索（semantic-primary 加权融合），
+                    排序会参考验证状态（verified 加权、disputed 重罚）
+  - MemoryLifecycle mixin：age() 遗忘状态机（active→stale→archived→物理删）+ learn() 自动学习
   - MemoryGate      写入语义闸门三分类 + 纠正信号检测
-  - detect_correction / detect_correction_layer1  环1 纠正检测
+  - detect_correction / detect_correction_layer1  纠正检测（规则层零网络）
 
-依赖：numpy（外部唯一依赖）。嵌入服务默认 http://127.0.0.1:8082（OpenAI 兼容，
-可用 MEMORY_EMBED_URL 覆盖）。不依赖 Hermes 框架、无 ~/.hermes 路径硬编码。
+依赖：核心 API 只需要 numpy（SQLite 为标准库自带）。嵌入服务默认
+http://127.0.0.1:8082（OpenAI 兼容，可用 MEMORY_EMBED_URL 覆盖），缺失时
+语义检索自动降级。不依赖任何 agent 框架。
 
 快速开始:
   from memorykit import MemoryDB
@@ -28,7 +31,7 @@ from .gate import (
 )
 from .embedder import Embedder, HTTPEmbedder, embed_text
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 __all__ = [
     "MemoryDB",

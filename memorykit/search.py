@@ -7,6 +7,10 @@ import numpy as np
 class MemorySearch:
     """Mixin: search/entity methods for MemoryDB."""
 
+    # ── 检索融合权重（历史命名遗留）──────────────────────────────
+    # 实际算法是 semantic-primary 加权融合（多信号打分后加权合并），
+    # 并非标准 RRF。RRF_K/_rrf_score 为历史命名，字段名 rrf_score 保留
+    # 以兼容旧数据/旧调用方；新文档一律称为"加权融合"。
     RRF_K = {
         "fts5":    40,
         "entity":  50,
@@ -78,6 +82,9 @@ class MemorySearch:
         k = self.RRF_K.get(signal, 60)
         return 1.0 / (k + rank)
 
+    # NOTE: MemoryDB（db.py）覆盖了本类的 search_semantic / backfill_vectors，
+    # 提供更快的 vector_bin 二进制批量余弦 + json→bin 自动迁移。这里保留
+    # 基础实现作为 mixin 独立使用时的参考/兜底，两处行为一致（维度不兼容时跳过）。
     def search_semantic(self, query, limit=10, category=None, scope=None):
         """语义搜索: embed query, cosine similarity against stored vectors."""
         qvec = self._embed(query)
@@ -122,7 +129,7 @@ class MemorySearch:
         return count
 
     def search_multi(self, query, limit=10, category=None, scope=None):
-        """四信号并行检索 + 加权RRF融合。"""
+        """四信号并行检索 + semantic-primary 加权融合。"""
         if not query.strip():
             return self.search(query, limit=limit, category=category, scope=scope)
 
