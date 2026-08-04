@@ -1,0 +1,25 @@
+GNU AFFERO GENERAL PUBLIC LICENSE
+Version 3, 19 November 2007
+
+本库以 AGPL-3.0-only 许可证发布。
+
+许可证全文见官方权威文本：
+  https://www.gnu.org/licenses/agpl-3.0.txt
+
+SPDX 标识符: AGPL-3.0-only
+
+── 重要条款摘要（以官方全文为准）──
+* 你可以自由使用、修改、分发本软件。
+* 如果你在网络环境下向用户提供服务（即使不修改代码），也必须向服务的
+  用户提供完整的对应源代码（Affero 条款）。
+* 修改后的衍生作品必须以相同的 AGPL-3.0 许可证发布。
+* 本软件按"原样"提供，不附带任何明示或暗示的担保。
+
+──────────────────────────────────────────────
+下面是许可证官方全文（GNU Affero General Public License v3.0）。
+由于全文较长，此处以官方 URL 引用为准；随包分发的完整文本见
+<https://www.gnu.org/licenses/agpl-3.0.txt>。如需离线全文，可执行：
+
+  curl -sL https://www.gnu.org/licenses/agpl-3.0.txt -o LICENSE.txt
+
+──────────────────────────────────────────────
