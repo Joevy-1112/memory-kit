@@ -773,8 +773,12 @@ class MemoryLifecycle:
             # Fast path: batch cosine over binary blobs
             blobs = []
             row_indices = []
+            # 维度安全：库里可能混有不同嵌入模型产生的向量（如 1024d/2048d），
+            # 必须按当前查询向量维度过滤，否则 np.array 批量拼接抛
+            # ValueError: inhomogeneous shape（2026-08-04 修复，小龙虾审查发现）
+            qdim = int(qvec_np.size)
             for idx, r in enumerate(rows):
-                if r["vector_bin"] is not None:
+                if r["vector_bin"] is not None and self._vector_dim_from_blob(r["vector_bin"]) == qdim:
                     blobs.append(r["vector_bin"])
                     row_indices.append(idx)
             
@@ -797,11 +801,12 @@ class MemoryLifecycle:
                     if fusion >= 0.85:
                         matches.append((fusion, sim, overlap, dict(r)))
             else:
-                # Slow fallback: JSON parse
+                # Slow fallback: JSON parse（同样做维度过滤）
                 matches = []
                 for r in rows:
-                    dv = json.loads(r["vector"]) if r.get("vector") else None
-                    if dv:
+                    dv_raw = r["vector"]
+                    dv = json.loads(dv_raw) if dv_raw else None
+                    if dv and len(dv) == qdim:
                         sim = self._cosine_similarity(qvec, dv)
                         overlap = _entity_overlap(new_entities, r["entities"])
                         fusion = _fusion_score(sim, overlap)

@@ -379,6 +379,17 @@ pip install pytest && python -m pytest tests/ -v
 
 ---
 
+## 更新日志
+
+### v1.0.1（2026-08-04）
+- **修复**：`learn()` 去重路径在混合维度向量（如换过嵌入模型 1024d→2048d）时崩溃（`ValueError: inhomogeneous shape`）——批量余弦前按维度过滤，与 `search_semantic` 行为一致（发现者：OpenClaw 小龙虾审查）
+- **修复**：`learn()` 慢路径 `r.get("vector")` 对 `sqlite3.Row` 无该方法报错——改为 `r["vector"]` 并加维度检查
+- **新增**：`tests/test_dimension_mixed.py` 回归测试（模拟 1024d/2048d 混合库）
+
+### v1.0.0（2026-08-02）
+- 初始独立库：三路检索（FTS5/语义/实体）+ 置信度引擎 + 纠正闭环 + 遗忘状态机 + 语义闸门
+- 双 Agent 集成示例（Hermes × OpenClaw）+ 实测记录
+
 ## 许可证
 
 AGPL-3.0-only（SPDX）。官方全文：
