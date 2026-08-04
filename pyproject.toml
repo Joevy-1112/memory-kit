@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "memory-kit"
 version = "1.0.0"
-description = "从 Hermes 框架剥离的独立记忆系统：SQLite 可检索/可过期/无上限记忆库 + 三路检索 + 遗忘状态机 + 语义闸门"
+description = "给 AI 用的轻量记忆系统：SQLite 可检索/可过期/无上限记忆库 + 三路检索 + 遗忘状态机 + 语义闸门"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "AGPL-3.0-only" }

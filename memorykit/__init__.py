@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""memorykit — 从 Hermes 框架剥离的独立记忆系统库。
+"""memorykit — 给 AI 用的轻量记忆系统库。
 
 可检索、可过期、无上限的 SQLite 记忆系统：
   - MemoryDB        主类：建库/写入/检索/置信度引擎/纠正闭环/知识图谱（继承两个 mixin）
