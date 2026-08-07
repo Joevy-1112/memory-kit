@@ -44,6 +44,15 @@ EMBEDDING_URL = os.environ.get("MEMORY_EMBED_URL", "http://127.0.0.1:8082")
 # 默认数据库路径：当前目录 memory.db（原 Hermes 版硬编码 ~/.hermes/memory.db）
 DB_PATH = os.path.join(os.getcwd(), "memory.db")
 
+# jieba 用户词典：随包分发（memorykit/data/）。路径相对包目录——
+# 无论从哪个 venv / 以何种方式 import memorykit，都能定位到同一份词典
+# （见 _extract_entities 第 7 步的懒加载）。
+JIEBA_USERDICT_PATH = Path(__file__).resolve().parent / "data" / "jieba_userdict.txt"
+JIEBA_USERDICT_LOADED = False
+# 用户词典中含 posseg 块表达式承载不了字符（如连字符）的词——
+# posseg 的 re_han_internal 无 '-', X99-F8D 会被拆成 X99/-/F8D，需直配兜底。
+JIEBA_USERDICT_WORDS: set = set()
+
 
 # ---------------------------------------------------------------------------
 # Schema
@@ -61,8 +70,10 @@ CREATE TABLE IF NOT EXISTS memories (
     ttl         INTEGER DEFAULT NULL,
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
+    event_time  TEXT DEFAULT NULL,   -- 事件发生时间（v2 检索元数据：仅参与时间偏置排序，不参与 TTL/遗忘状态机/去重年龄判断）
     accessed_at TEXT DEFAULT (datetime('now')),
     vector      TEXT DEFAULT NULL,
+    sparse      TEXT DEFAULT NULL,   -- 稀疏词法权重（bge-m3 sparse_weights 的 JSON，{token_id_str: weight}；NULL=纯 dense 降级，仅参与检索 lexical 融合）
     agent_id    TEXT DEFAULT 'hermes',
     origin      TEXT DEFAULT 'unknown',  -- 来源标注: laptop/server/unknown（只写一次，merge 不覆盖）
     source_session TEXT DEFAULT NULL,
@@ -285,14 +296,35 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         if embedder is not None:
             self._embed = embedder.embed
             self._is_embedding_available = embedder.is_available
+            # 批量嵌入（learn_batch 用）：注入的 embedder 若实现 embed_batch 则接管
+            # 批量路径（一次 HTTP 嵌入 N 条）；否则置 None → learn_batch 逐条降级
+            # （走注入 embedder 的 embed，URL/语义与单条一致）。
+            _embed_batch = getattr(embedder, "embed_batch", None)
+            # type: ignore[assignment] —— 允许 None：表示注入 embedder 无批量能力，
+            # learn_batch 检测到 None 后逐条降级（见 learn_batch 实现）。
+            self._embed_batch = _embed_batch if callable(_embed_batch) else None
+            # hybrid sparse：注入的 embedder 若实现 embed_with_sparse /
+            # embed_batch_with_sparse（返回 (dense, sparse) 元组）则接管
+            # sparse 解析；否则 _embed_with_sparse 回退 (self._embed(text), None)
+            # —— 纯 dense 降级，行为与注入前完全一致。
+            _es = getattr(embedder, "embed_with_sparse", None)
+            self._embed_with_sparse_impl = _es if callable(_es) else None
+            _ebs = getattr(embedder, "embed_batch_with_sparse", None)
+            self._embed_batch_with_sparse_impl = _ebs if callable(_ebs) else None
+        else:
+            self._embed_with_sparse_impl = None
+            self._embed_batch_with_sparse_impl = None
+        self._embedder_injected = embedder is not None
         # Migration: add columns for existing databases — only run ALTER for
         # columns that are actually missing (checked via PRAGMA table_info),
         # so repeated MemoryDB() instantiations don't replay 20+ write ops
         # (avoids 'database is locked' contention + wasted IO).
         self._migrate_columns("memories", [
             "ALTER TABLE memories ADD COLUMN vector TEXT DEFAULT NULL",
+            "ALTER TABLE memories ADD COLUMN sparse TEXT DEFAULT NULL",
             "ALTER TABLE memories ADD COLUMN agent_id TEXT DEFAULT 'hermes'",
             "ALTER TABLE memories ADD COLUMN origin TEXT DEFAULT 'unknown'",
+            "ALTER TABLE memories ADD COLUMN event_time TEXT DEFAULT NULL",
             "ALTER TABLE memories ADD COLUMN source_session TEXT DEFAULT NULL",
             "ALTER TABLE memories ADD COLUMN decay_profile TEXT DEFAULT 'medium'",
             "ALTER TABLE memories ADD COLUMN stale_since TEXT DEFAULT NULL",
@@ -467,10 +499,20 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             embed: bool = True,
             agent_id: str = "hermes", source_session: str = None,
             decay_profile: str = None, provenance: str = None,
-            vector: list = None, water: int = 2) -> int:
+            vector: list = None, water: int = 2,
+            event_time: str = None, sparse: dict = None) -> int:
         """Insert or replace a memory entry. Optionally computes embedding. Returns row id.
         
-        If `vector` is provided (pre-computed), skip embedding call entirely."""
+        If `vector` is provided (pre-computed), skip embedding call entirely.
+
+        event_time: 事件发生时间（'YYYY-MM-DD[ HH:MM:SS]'），v2 检索元数据——
+        仅用于搜索时间偏置（recency/时间窗口），不参与 TTL/遗忘状态机/去重年龄判断。
+        同 key 重写时若未显式传入 event_time（None），保留旧值不覆盖（COALESCE），
+        防止一次普通内容更新把已有的事件时点清掉。
+
+        sparse: 稀疏词法权重 {token_id_str: weight}（bge-m3 sparse_weights），
+        以 JSON 存 sparse 列。None/空 → 存 NULL（纯 dense 降级）。同 key 重写时
+        以本次传入为准覆盖（内容更新 → 词法信号同步更新）。"""
         # Auto-detect decay_profile from category if not specified
         if decay_profile is None:
             if category in ("lesson", "protocol"):
@@ -487,6 +529,8 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             vec = self._embed(content[:5000])  # cap at 5K chars for perf
         vec_json = json.dumps(vec) if vec else None
         vec_bin = struct.pack(f'{len(vec)}f', *vec) if vec else None
+        # sparse 词法权重：None/空 dict → NULL（纯 dense 降级）
+        sparse_json = json.dumps(sparse) if sparse else None
 
         # Extract entities
         extracted = self._extract_entities(content)
@@ -516,10 +560,10 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         # 否则验证过的高置信度记忆会被一次普通 set() 打回原形。
         self._conn.execute("""
             INSERT INTO memories(key, content, category, tags, scope, importance, ttl,
-                created_at, updated_at, accessed_at,
-                vector, vector_bin, agent_id, source_session, decay_profile,
+                created_at, updated_at, accessed_at, event_time,
+                vector, sparse, vector_bin, agent_id, source_session, decay_profile,
                 provenance, entities, water, confidence, verification_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
                 content=excluded.content,
                 category=excluded.category,
@@ -528,6 +572,7 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                 importance=excluded.importance,
                 ttl=excluded.ttl,
                 vector=excluded.vector,
+                sparse=excluded.sparse,
                 vector_bin=excluded.vector_bin,
                 entities=excluded.entities,
                 agent_id=excluded.agent_id,
@@ -535,10 +580,11 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                 decay_profile=excluded.decay_profile,
                 provenance=excluded.provenance,
                 water=excluded.water,
+                event_time=COALESCE(excluded.event_time, memories.event_time),
                 updated_at=excluded.updated_at,
                 accessed_at=excluded.accessed_at
-        """, (key, content, category, tags, scope, importance, ttl, now, now, now,
-              vec_json, vec_bin, agent_id, source_session, decay_profile,
+        """, (key, content, category, tags, scope, importance, ttl, now, now, now, event_time,
+              vec_json, sparse_json, vec_bin, agent_id, source_session, decay_profile,
               provenance_final, entities_json, water, confidence, "pending"))
         self._conn.commit()
         row = self._conn.execute("SELECT id FROM memories WHERE key=?", (key,)).fetchone()
@@ -936,6 +982,178 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         except Exception:
             return None
 
+    def _embed_batch(self, texts: list) -> list:
+        """批量嵌入（默认 HTTP 实现）：一次 POST /v1/embeddings 嵌入多条。
+
+        learn_batch 批量路径使用：返回与 texts 等长、按输入顺序对齐的向量列表，
+        单条失败/过短（len(strip)<3）对应位置 None；整体请求失败 → 全 None
+        （与 _embed 失败返回 None 的降级语义一致）。超时放宽到 30s（大 batch
+        服务端推理耗时随条数增长）。
+        """
+        if not texts:
+            return []
+        valid_idx = [i for i, t in enumerate(texts) if t and len(str(t).strip()) >= 3]
+        clean = [texts[i] for i in valid_idx]
+        out: list = [None] * len(texts)
+        if not clean:
+            return out
+        try:
+            data = json.dumps({"input": clean, "model": "default"}).encode("utf-8")
+            req = urllib.request.Request(
+                f"{EMBEDDING_URL}/v1/embeddings",
+                data=data,
+                headers={"Content-Type": "application/json"}
+            )
+            resp = urllib.request.urlopen(req, timeout=30)
+            result = json.loads(resp.read())
+            data_list = result.get("data") or []
+            by_index = {}
+            has_index = False
+            for item in data_list:
+                if isinstance(item, dict) and isinstance(item.get("embedding"), list):
+                    if item.get("index") is not None:
+                        has_index = True
+                        by_index[int(item["index"])] = item["embedding"]
+            for j, idx in enumerate(valid_idx):
+                if has_index:
+                    emb = by_index.get(j)
+                elif j < len(data_list) and isinstance(data_list[j], dict):
+                    emb = data_list[j].get("embedding")
+                else:
+                    emb = None
+                out[idx] = emb if isinstance(emb, list) else None
+            return out
+        except Exception:
+            return [None] * len(texts)
+
+    def _embed_with_sparse(self, text: str) -> tuple:
+        """嵌入并解析 sparse_weights → (dense_vec, sparse_dict)。
+
+        hybrid 检索（sparse lexical 信号）入口：
+          - 注入的 embedder 实现 embed_with_sparse（返回 (dense, sparse) 元组）
+            → 走其实现；
+          - _embed 被替换/自定义（注入 embedder 的 embed、monkey-patch 等）
+            → 尊重现有实现，(self._embed(text), None) 纯 dense 降级，行为与
+            替换前完全一致；
+          - 默认 HTTP 路径（bge-m3 原版 8083）：一次请求同时解析 embedding 与
+            sparse_weights；服务端不返回 sparse_weights（llama.cpp GGUF 8082）
+            → sparse=None，降级纯 dense。空 dict {} 视为 None（跳过 lexical）。
+        """
+        impl = getattr(self, "_embed_with_sparse_impl", None)
+        if impl is not None:
+            try:
+                return impl(text)
+            except Exception:
+                return None, None
+        # _embed 是否仍是 MemoryDB 默认实现：是 → 走下方 HTTP+sparse 解析；
+        # 否（注入 embedder 的 embed 或 monkey-patch）→ 尊重之，sparse 不可用
+        _fn = getattr(self._embed, "__func__", self._embed)
+        if _fn is not MemoryDB._embed:
+            return self._embed(text), None
+        if not text or len(text.strip()) < 3:
+            return None, None
+        try:
+            data = json.dumps({"input": text, "model": "default"}).encode("utf-8")
+            req = urllib.request.Request(
+                f"{EMBEDDING_URL}/v1/embeddings",
+                data=data,
+                headers={"Content-Type": "application/json"}
+            )
+            resp = urllib.request.urlopen(req, timeout=5)
+            result = json.loads(resp.read())
+            item = result["data"][0]
+            vec = item.get("embedding")
+            dense = vec if isinstance(vec, list) else None
+            sw = item.get("sparse_weights")
+            sparse = None
+            if isinstance(sw, dict) and sw:
+                sparse = {str(k): float(v) for k, v in sw.items()}
+            return dense, sparse
+        except Exception:
+            return None, None
+
+    def _embed_batch_with_sparse(self, texts: list) -> list:
+        """批量嵌入 + sparse → 与 texts 等长、按输入顺序对齐的 [(dense, sparse)]。
+
+        优先级：
+          1. 注入 embedder 的 embed_batch_with_sparse（完整 sparse 支持）；
+          2. _embed_batch 被替换/自定义（注入 embedder 的 embed_batch 或
+             monkey-patch）→ 用其批量得 dense，sparse=None（保持既有批量加速，
+             learn_batch 零二次嵌入不变量）；
+          3. 无批量实现 → 逐条 _embed_with_sparse；
+          4. 默认 HTTP 批量路径：一次 POST 解析 embedding + sparse_weights。
+        整体请求失败 → 全 (None, None)（与 _embed_batch 全 None 降级语义一致）。
+        """
+        impl = getattr(self, "_embed_batch_with_sparse_impl", None)
+        if impl is not None:
+            try:
+                pairs = impl(texts)
+                if isinstance(pairs, list) and len(pairs) == len(texts):
+                    return pairs
+            except Exception:
+                pass
+        # 自定义批量实现（注入 embedder 的 embed_batch 或 monkey-patch）：
+        # 用其批量得 dense，sparse=None（保持既有批量加速与零二次嵌入不变量）
+        eb = getattr(self, "_embed_batch", None)
+        if eb is not None:
+            eb_fn = getattr(eb, "__func__", eb)
+            if eb_fn is not MemoryDB._embed_batch:
+                try:
+                    dense_list = eb(texts)
+                    if isinstance(dense_list, list) and len(dense_list) == len(texts):
+                        return [(d, None) for d in dense_list]
+                except Exception:
+                    pass
+        # _embed 被替换（注入 embedder 或 monkey-patch）：逐条走
+        # _embed_with_sparse —— 绝不绕过自定义实现去请求默认 HTTP 服务
+        _efn = getattr(self._embed, "__func__", self._embed)
+        if _efn is not MemoryDB._embed:
+            return [self._embed_with_sparse(t) for t in texts]
+        if not texts:
+            return []
+        valid_idx = [i for i, t in enumerate(texts) if t and len(str(t).strip()) >= 3]
+        clean = [texts[i] for i in valid_idx]
+        out: list = [(None, None)] * len(texts)
+        if not clean:
+            return out
+        try:
+            data = json.dumps({"input": clean, "model": "default"}).encode("utf-8")
+            req = urllib.request.Request(
+                f"{EMBEDDING_URL}/v1/embeddings",
+                data=data,
+                headers={"Content-Type": "application/json"}
+            )
+            resp = urllib.request.urlopen(req, timeout=30)
+            result = json.loads(resp.read())
+            data_list = result.get("data") or []
+            by_index = {}
+            has_index = False
+            for item in data_list:
+                if isinstance(item, dict) and isinstance(item.get("embedding"), list):
+                    if item.get("index") is not None:
+                        has_index = True
+                        by_index[int(item["index"])] = item
+            for j, idx in enumerate(valid_idx):
+                if has_index:
+                    item = by_index.get(j)
+                elif j < len(data_list) and isinstance(data_list[j], dict):
+                    item = data_list[j]
+                else:
+                    item = None
+                if item is None:
+                    out[idx] = (None, None)
+                    continue
+                emb = item.get("embedding")
+                dense = emb if isinstance(emb, list) else None
+                sw = item.get("sparse_weights")
+                sparse = None
+                if isinstance(sw, dict) and sw:
+                    sparse = {str(k): float(v) for k, v in sw.items()}
+                out[idx] = (dense, sparse)
+            return out
+        except Exception:
+            return [(None, None)] * len(texts)
+
     @staticmethod
     def _vector_dim_from_blob(blob) -> int:
         """Return float32 vector dimension stored in a BLOB, or 0 if invalid."""
@@ -961,11 +1179,25 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         return float(dot / (na * nb))
 
     def search_semantic(self, query: str, limit: int = 10,
-                        category: str = None, scope: str = None) -> list[dict]:
-        """Semantic search: embed query, cosine similarity against stored vectors."""
+                        category: str = None, scope: str = None,
+                        time_window: tuple = None, ref_time=None,
+                        max_age_days: float = None,
+                        strict_time_window: bool = False) -> list[dict]:
+        """Semantic search: embed query, cosine similarity against stored vectors.
+
+        v2 时间参数（与 search_multi 同语义，见 search.py MemorySearch.search_multi）:
+          time_window=(start, end)    软约束：temporal 值落在窗口内的条目加权，
+                                      窗口外降权（宽召回，不剔除）。
+          ref_time + max_age_days     基准时间 + 年龄窗口（temporal >= ref_time - max_age_days）。
+          strict_time_window=True     上述窗口改为 SQL WHERE 硬过滤；默认 False 软重排。
+        temporal 值 = COALESCE(event_time, created_at)（事件发生时间优先）。
+        TTL 条件仍用 created_at。
+        """
         qvec = self._embed(query)
         if not qvec:
             return []  # embedding server unavailable, return empty
+
+        tp = self._resolve_time_params(time_window, ref_time, max_age_days)
 
         # Build SQL filters
         conditions = ["m.vector IS NOT NULL"]  # only entries with vectors
@@ -975,10 +1207,13 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         if scope:
             conditions.append("m.scope = ?"); params.append(scope)
         conditions.append("(m.ttl IS NULL OR (julianday('now') - julianday(m.created_at)) * 86400 < m.ttl)")
+        if strict_time_window and tp["active"]:
+            conditions.extend(self._strict_window_sql(tp, params))
         where = " AND ".join(conditions)
 
         rows = self._conn.execute(
-            f"SELECT m.* FROM memories m WHERE {where}", params
+            f"SELECT m.*, julianday(COALESCE(m.event_time, m.created_at)) AS _temporal_jd "
+            f"FROM memories m WHERE {where}", params
         ).fetchall()
 
         if not rows:
@@ -1013,7 +1248,9 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             scored = []
             for i, idx in enumerate(indices):
                 d = dict(rows[idx])
+                tjd = d.pop("_temporal_jd", None)
                 d["similarity"] = round(float(scores[i]), 4)
+                d["time_bias"] = round(self._window_bias(tjd, tp), 4)
                 scored.append(d)
         else:
             # Slow path: JSON parse fallback, also dimension-safe.
@@ -1022,11 +1259,14 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                 d = dict(r)
                 vec = json.loads(d["vector"]) if d.get("vector") else None
                 if vec and len(vec) == qdim:
+                    tjd = d.pop("_temporal_jd", None)
                     score = self._cosine_similarity(qvec, vec)
                     d["similarity"] = round(score, 4)
+                    d["time_bias"] = round(self._window_bias(tjd, tp), 4)
                     scored.append(d)
 
-        scored.sort(key=lambda x: x["similarity"], reverse=True)
+        # v2 软重排：时间偏置乘入最终排序键（无时间参数时 bias 恒为 1.0，行为不变）
+        scored.sort(key=lambda x: x["similarity"] * x.get("time_bias", 1.0), reverse=True)
         return scored[:limit]
 
     def backfill_vectors(self, limit: int = 500) -> int:
@@ -1121,7 +1361,7 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         """Start a new episode. Returns the key."""
         from datetime import datetime
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        name = title or f"Session {session_id[:8]}"
+        name = title or f"Session {session_id}"
         key = f"episodic/{session_id[:16]}"
         try:
             self._conn.execute("""
@@ -1218,7 +1458,35 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                         "some","such","these","those","also","very","just","than","then",
                         "each","both","over","still","while","because","is","or","to",
                         "in","at","by","ok","it","on","as","be","an","not","no","of",
-                        "and","for","can","may","all","are","was","has","had","its"}
+                        "and","for","can","may","all","are","was","has","had","its",
+                        # 2026-08-07 小龙虾实测反馈: common_words 未覆盖高频虚词/弱实词
+                        # （am/buying/considering/get/used/card 等），整句英文会被捞成
+                        # 一堆语法词 tag。补充：人称代词/情态助动词/常用弱动词/时间量词。
+                        # 纯技术词（model/server/train/data 等）刻意不在此列，保留实体信号。
+                        "am","is","are","was","were","be","been","being","do","does",
+                        "did","doing","done","have","has","had","having","will","would",
+                        "could","should","can","may","might","must","shall",
+                        "i","me","my","mine","you","your","yours","he","him","his",
+                        "she","her","hers","we","us","our","ours","they","them","their",
+                        "theirs","its","it",
+                        "get","gets","getting","got","go","goes","going","went","gone",
+                        "buy","buys","buying","bought","consider","considers",
+                        "considering","considered","use","uses","using","used",
+                        "make","makes","making","made","take","takes","taking","took",
+                        "come","comes","coming","came","see","sees","seeing","saw",
+                        "know","knows","knowing","knew","think","thinks","thinking",
+                        "thought","say","says","saying","said","tell","tells","telling",
+                        "told","ask","asks","asking","asked","want","wants","wanting",
+                        "need","needs","needing","look","looks","looking","looked",
+                        "card","cards","thing","things","someone","something",
+                        "anything","everything","nothing","nobody","everyone","anyone",
+                        "now","today","tomorrow","yesterday","one","two","three",
+                        "first","second","next","last","day","days","week","weeks",
+                        "month","months","year","years","time","times","many","much",
+                        "few","several","every","any","some","really","actually",
+                        "always","never","sometimes","usually","maybe","perhaps",
+                        "even","yet","once","twice","again","soon","early","late",
+                        "quite","rather","enough","almost","nearly","else"}
 
         # 时间/地点的过滤模式
         time_loc_patterns = [
@@ -1273,22 +1541,139 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
 
         # ── 中文实体 ──
 
-        # 6. 中文技术/关键名词 (2-6字, 含GPU/CPU/模型/驱动等关键词)
-        stopwords = {"因为","所以","但是","而且","如果","虽然","然后","可以",
-                     "这个","那个","什么","怎么","不是","就是","没有","一个",
-                     "已经","知道","需要","能够","合并自","默认","之前",
-                     "之后","这样","那样","这里","那里","如何","为何",
-                     "就是","而是","还是","或者","并且"}
-        for m in re.finditer(r'[\u4e00-\u9fff]{2,6}', text):
-            e = m.group().strip()
-            if e not in stopwords:
-                # 含关键词的实体加分
-                score = 1.0
-                if any(kw in e for kw in ("GPU","CPU","AI","API","模型","驱动",
-                                          "配置","版本","内存","系统","网络",
-                                          "训练","学习","数据","服务")):
-                    score = 2.0
-                candidates[e] = candidates.get(e, 0) + score
+        # 6. 中文技术/关键名词：词表匹配
+        # 2026-08-07 小龙虾实测反馈: 原 `[\u4e00-\u9fff]{2,6}` 把整句中文字符串切成
+        # 2-6 字连续碎片（"2026-08-07天气不错去公园散步买水果" 变一堆噪音 tag）。
+        # 2026-08-07 v2 改为 jieba 分词 + 词性过滤（见 7）。词表保留为兜底：
+        #   a) jieba 未装 / import 失败时的轻量降级方案（不新加重依赖）
+        #   b) 多字技术短语直配——jieba 常把"深度学习"切成 深度+学习、把"显卡/显存/
+        #      预算"标成动词，词表命中保证实体不丢
+        zh_tech_terms = [
+            # 硬件/资源
+            "显卡", "显存", "内存", "主板", "硬盘", "固态", "电源", "散热",
+            "显示器", "笔记本", "台式机", "服务器", "处理器", "集群", "节点", "带宽",
+            # 模型/训练/推理
+            "模型", "训练", "推理", "量化", "微调", "预训练", "权重", "参数",
+            "数据集", "深度学习", "神经网络", "学习率", "损失函数", "梯度", "批处理",
+            # 系统/软件/部署
+            "驱动", "配置", "版本", "系统", "网络", "端口", "路径", "安装",
+            "升级", "部署", "编译", "报错", "崩溃", "错误", "修复", "重启",
+            # 业务/预算
+            "预算", "价格", "成本", "项目", "需求",
+        ]
+        # 长词优先（"深度学习"先于"学习"命中），避免长技术词被短词截胡
+        zh_terms_sorted = sorted(set(zh_tech_terms), key=len, reverse=True)
+        zh_pat = re.compile("|".join(re.escape(t) for t in zh_terms_sorted))
+        zh_runs = re.findall(r'[\u4e00-\u9fff]{2,}', text)
+        for run in zh_runs:
+            for m in zh_pat.finditer(run):
+                e = m.group()
+                candidates[e] = candidates.get(e, 0) + 2.0
+
+        # 7. jieba 分词 + 词性过滤（懒加载；import 失败时静默降级到上面的词表方案）
+        # 2026-08-07 用户词典（t_921e668a）：纯英文/无中文文本直接跳过 jieba——
+        # jieba 首载 ~0.6s 与用户词典加载都不会拖慢英文场景。中文路径首次进入时
+        # load_userdict(memorykit/data/jieba_userdict.txt)（文件存在才加载），
+        # 专名（虹桥火车站/华侨城创意园/小鸡翅/银渐层/X99-F8D…）整词命中，
+        # 不再依赖 7a/7b 合并启发式。
+        if zh_runs:
+            try:
+                import jieba
+                import jieba.posseg as pseg
+            except ImportError:
+                jieba = pseg = None
+        else:
+            jieba = pseg = None
+        if pseg is not None:
+            global JIEBA_USERDICT_LOADED
+            if not JIEBA_USERDICT_LOADED:
+                JIEBA_USERDICT_LOADED = True
+                if JIEBA_USERDICT_PATH.exists():
+                    # 传文件对象而非路径：load_userdict(path) 内部不关句柄，
+                    # 会冒 ResourceWarning
+                    with open(JIEBA_USERDICT_PATH, encoding="utf-8") as _udf:
+                        jieba.load_userdict(_udf)
+                    # 收集 posseg 承载不了的词典词（含连字符的型号等），
+                    # 供下面直配兜底；注释行/空行跳过。
+                    for _ln in JIEBA_USERDICT_PATH.read_text(
+                            encoding="utf-8").splitlines():
+                        if not _ln.strip() or _ln.lstrip().startswith("#"):
+                            continue
+                        _tok = _ln.split()
+                        if _tok and re.search(
+                                r'[^\u4e00-\u9fffA-Za-z0-9+#&._]', _tok[0]):
+                            JIEBA_USERDICT_WORDS.add(_tok[0])
+            # 喂给 jieba 的是含 CJK 的完整块（含字母/数字/连字符），而非纯中文 run——
+            # 用户词典里的混合专名（X99-F8D/CX400M4/memorykit/Joe）才能整词命中；
+            # 纯英文块（无 CJK）跳过，仍由上面的英文规则负责。
+            zh_blocks = [b for b in re.findall(
+                r'[\u4E00-\u9FD5a-zA-Z0-9+#&\._%\-]+', text)
+                if re.search(r'[\u4e00-\u9fff]', b)]
+            # 名词家族保留: n 名词 / nr 人名 / ns 地名 / nt 机构 / nz 其他专名
+            KEEP_POS = {"n", "nr", "ns", "nt", "nz"}
+            # 专名合并允许的单字尾（量词/名词）：银渐(nr)+层(q) → 银渐层
+            TAIL_POS = {"n", "nz", "q"}
+            # 常见方位/时间后缀，避免拼出 模型时/服务器上 之类的噪音
+            TAIL_BAD = {"时", "后", "前", "中", "上", "下", "里", "外", "内",
+                        "边", "处", "左", "右"}
+            # 普通名词稀有度门槛：日常高频名词（天气/公园/散步/水果）不是实体；
+            # 词频 < RARE_FREQ 或词典外（HMM 猜测，多为低频专名）才保留
+            RARE_FREQ = 150
+            zh_word_set = set(zh_tech_terms)
+            for run in zh_blocks:
+                toks = list(pseg.cut(run))
+                out = []
+                i = 0
+                while i < len(toks):
+                    w, f = toks[i]
+                    # 7a. 单字形容词 + 名词 → 合并专名（小+鸡翅 → 小鸡翅）。
+                    #     名词需低频/专名/技术词，避免 大+水果 这类噪音
+                    if (len(w) == 1 and f in ("a", "an") and i + 1 < len(toks)):
+                        w2, f2 = toks[i + 1]
+                        if f2 in KEEP_POS and len(w2) >= 2:
+                            fr = jieba.dt.FREQ.get(w2)
+                            noun_ok = (f2 in ("nr", "ns", "nt", "nz")
+                                       or w2 in zh_word_set
+                                       or fr is None or fr < RARE_FREQ)
+                            if noun_ok:
+                                out.append((w + w2, "nz"))
+                                i += 2
+                                continue
+                    # 7b. 专名 + 单字尾（量词/名词）→ 合并（银渐+层 → 银渐层）
+                    if (f in ("nr", "ns", "nt", "nz") and len(w) >= 2
+                            and i + 1 < len(toks)):
+                        w2, f2 = toks[i + 1]
+                        if (len(w2) == 1 and f2 in TAIL_POS
+                                and w2 not in TAIL_BAD and len(w) + 1 <= 4):
+                            out.append((w + w2, "nz"))
+                            i += 2
+                            continue
+                    out.append((w, f))
+                    i += 1
+                for w, f in out:
+                    if len(w) < 2 or len(w) > 10:  # 实体 2-10 字
+                        continue
+                    if f == "eng":  # 英文交给上面英文规则，不重复计
+                        continue
+                    if f in ("nr", "ns", "nt", "nz"):  # 专名 2 分
+                        score = 2.0
+                    elif f == "n":  # 普通名词 1.5 分，但高频日常词过滤
+                        fr = jieba.dt.FREQ.get(w)
+                        if fr is not None and fr >= RARE_FREQ:
+                            continue
+                        score = 1.5
+                    else:  # v/a/d/r/m/q/uj/uz/x 等丢弃
+                        continue
+                    if w in zh_word_set:  # 技术关键词加分
+                        score += 0.5
+                    candidates[w] = candidates.get(w, 0) + score
+
+            # 用户词典直配兜底：posseg 块表达式承载不了的词典词
+            # （含连字符的型号如 X99-F8D）不会被 pseg 整词切出，这里在原文
+            # 子串匹配加分。纯中文/纯字母数字词由上方 DAG 负责，不走这条。
+            for w in JIEBA_USERDICT_WORDS:
+                if w in text:
+                    candidates[w] = candidates.get(w, 0) + 2.0
 
         # 过滤低频噪音
         sorted_entities = sorted(candidates.items(), key=lambda x: -x[1])

@@ -123,6 +123,20 @@ elif cmd == "fix":    db.correction(sys.argv[2])
 - **融合算法**：多路检索是 semantic-primary **加权融合**（各信号打分后按档位加权
   合并），不是标准 RRF；检索结果里的 `rrf_score` 字段是历史命名，保留以兼容旧调用方。
 
+### 2026-08-07 迭代追加（jieba 实体 / merge 修复 / 验证闭环 / hybrid 回退）
+
+- **jieba 用户词典**：`memorykit/data/jieba_userdict.txt`（随包分发，43 行）——
+  `_extract_entities` 中文路径懒加载，中文专名（人名/宠物/地名/硬件型号）整词命中；
+  英文/无中文场景完全跳过 jieba（首载 ~0.6s 不拖累）。格式坑：`词频在前词性在后`。
+- **merge 实体合并**：merge 时新抽实体 ∪ 旧实体合并写回（此前只拼 content，
+  entities 恒 null）——中文专名不再因去重合并丢失。
+- **验证闭环兜底**：无 state.db / 无源 session 时 `_lightweight_verify` 给非零
+  vscore（相似记忆 cos>0.85 / 时间锚 / 实体密度），不再恒 0。
+- **hybrid 三路（实验，已回退）**：bge-m3 原版三路 dense+sparse+colbert 曾接入，
+  实测中文 sparse 几乎不激活 + 慢 6.5x → 换回 GGUF 纯 dense。三路代码保留在
+  `venv-flagembed` + `bge3_hybrid_server.py`，要启用随时可以。
+- 详细记录见 `project-log.md`（2026-08-07 条目）。
+
 ## 还在修 / Roadmap
 
 按影响排序的已知缺口：

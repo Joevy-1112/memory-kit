@@ -19,6 +19,15 @@ class MemorySearch:
         "recency": 80,
     }
 
+    # ── hybrid sparse lexical 融合权重（memorykit hybrid，2026-08-07）──
+    # query 与候选的 bge-m3 sparse_weights 做 token 重叠得分
+    # （sum(min(wq, ws) for token in 交集)，BM25 简化），max 归一化到 [0,1]
+    # 后按此权重加到融合分。权重可配：调大 → 词法精确匹配更优先（适合
+    # 术语/代码/专名查询），调小 → 更依赖语义。默认 0.3。
+    # query sparse 不可用（GGUF 8082 / 注入 embedder 无 sparse 支持）→ 跳过
+    # 整段，完全原逻辑；候选 sparse 为 NULL → 该条 lexical 分 0。
+    LEXICAL_WEIGHT = 0.3
+
     # ── 环3 验证回流（design-docs/memory-v2-plan.md §环3）──────────────
     # verification_status 参与检索排序：最终得分 = 融合得分 × 系数。
     # 系数 = 1 + delta，delta 按设计定稿（评审修正 #6）：
@@ -82,30 +91,176 @@ class MemorySearch:
         k = self.RRF_K.get(signal, 60)
         return 1.0 / (k + rank)
 
+    # ── v2 时间偏置（memorykit v2: event_time 检索元数据）──────────────────
+    # event_time（事件发生时间）仅参与检索时间偏置，不参与 TTL/遗忘状态机/
+    # 写入去重年龄判断。temporal 值 = COALESCE(event_time, created_at)。
+    # 窗口内条目 boost（1.25），窗口外降权（0.25）——软约束宽召回，不剔除；
+    # strict_time_window=True 时改用 SQL WHERE 硬过滤（_strict_window_sql）。
+
+    TIME_WINDOW_BIAS_IN = 1.25     # 落在时间窗口内
+    TIME_WINDOW_BIAS_OUT = 0.25    # 落在时间窗口外（宽召回：仍返回，仅沉底）
+    TIME_WINDOW_BIAS_UNKNOWN = 0.5 # temporal 值缺失/解析失败（无法确认归属）
+
+    def _temporal_value(self, row):
+        """temporal 值 = row.event_time or row.created_at（事件发生时间优先）。
+
+        兼容 dict 与 sqlite3.Row；event_time 为 NULL 时回退 created_at，
+        因此旧数据/默认调用（不传 event_time）行为与 v1 完全一致。
+        """
+        try:
+            ev = row.get("event_time") if hasattr(row, "get") else row["event_time"]
+        except Exception:
+            ev = None
+        if ev:
+            return ev
+        try:
+            ca = row.get("created_at") if hasattr(row, "get") else row["created_at"]
+        except Exception:
+            ca = None
+        return ca
+
+    def _temporal_jd(self, row):
+        """temporal 值 → julian day（SQL julianday 口径，与 recency 信号一致）。"""
+        tv = self._temporal_value(row)
+        if not tv:
+            return None
+        try:
+            return self._conn.execute("SELECT julianday(?)", (str(tv),)).fetchone()[0]
+        except Exception:
+            return None
+
+    def _resolve_time_params(self, time_window=None, ref_time=None,
+                             max_age_days=None) -> dict:
+        """归一化 v2 时间参数 → 内部表示（julian day）。
+
+        返回 {"active": bool, "start": jd|None, "end": jd|None,
+              "ref": jd|None, "max_age_days": float|None}
+        time_window 接受 (start, end)，端点可为 None（开区间）；
+        端点接受 'YYYY-MM-DD[ HH:MM:SS]' 字符串或 datetime。
+        ref_time + max_age_days 语义：年龄窗口 [ref_time - max_age_days, ref_time]
+        （temporal 值落在此闭区间内才算窗口内；晚于 ref_time 的时点视为超窗）。
+        """
+        start = end = None
+        if time_window is not None:
+            try:
+                start, end = time_window
+            except (TypeError, ValueError):
+                start, end = None, None
+        active = (start is not None or end is not None
+                  or ref_time is not None or max_age_days is not None)
+        tp = {"active": bool(active), "start": None, "end": None,
+              "ref": None, "max_age_days": None}
+
+        def _to_jd(v):
+            if v is None:
+                return None
+            if hasattr(v, "strftime"):  # datetime / date
+                v = v.strftime("%Y-%m-%d %H:%M:%S")
+            try:
+                return self._conn.execute(
+                    "SELECT julianday(?)", (str(v),)).fetchone()[0]
+            except Exception:
+                return None
+
+        tp["start"] = _to_jd(start)
+        tp["end"] = _to_jd(end)
+        tp["ref"] = _to_jd(ref_time)
+        if max_age_days is not None:
+            try:
+                tp["max_age_days"] = float(max_age_days)
+            except (TypeError, ValueError):
+                tp["max_age_days"] = None
+        # ref_time 与 max_age_days 必须成对才生效（只给一个视为未启用对应约束）
+        if tp["ref"] is None or tp["max_age_days"] is None:
+            tp["ref"] = None
+            tp["max_age_days"] = None
+        return tp
+
+    def _in_time_window(self, temporal_jd, tp: dict) -> bool:
+        """temporal 值是否落在时间约束内（strict 硬过滤用；soft 用 _window_bias）。"""
+        if not tp or not tp.get("active"):
+            return True
+        if temporal_jd is None:
+            return False  # 无法确认归属 → 硬过滤时剔除
+        if tp.get("start") is not None and temporal_jd < tp["start"]:
+            return False
+        if tp.get("end") is not None and temporal_jd > tp["end"]:
+            return False
+        if tp.get("ref") is not None and tp.get("max_age_days") is not None:
+            # 年龄窗口闭区间 [ref - max_age_days, ref]
+            if temporal_jd < tp["ref"] - tp["max_age_days"] or temporal_jd > tp["ref"]:
+                return False
+        return True
+
+    def _window_bias(self, temporal_jd, tp: dict) -> float:
+        """时间窗口软重排系数。无时间参数 → 恒 1.0（完全兼容旧行为）。"""
+        if not tp or not tp.get("active"):
+            return 1.0
+        if temporal_jd is None:
+            return self.TIME_WINDOW_BIAS_UNKNOWN
+        if self._in_time_window(temporal_jd, tp):
+            return self.TIME_WINDOW_BIAS_IN
+        return self.TIME_WINDOW_BIAS_OUT
+
+    def _strict_window_sql(self, tp: dict, params: list) -> list:
+        """strict 硬过滤的 SQL 条件片段（追加到 params）。temporal = COALESCE(event_time, created_at)。
+
+        tp 内的时间点已是 julian day（_resolve_time_params 归一化），
+        与 julianday(...) 结果同口径，直接比较即可。
+        """
+        conds = []
+        base = "julianday(COALESCE(m.event_time, m.created_at))"
+        if tp.get("start") is not None:
+            conds.append(f"{base} >= ?")
+            params.append(tp["start"])
+        if tp.get("end") is not None:
+            conds.append(f"{base} <= ?")
+            params.append(tp["end"])
+        if tp.get("ref") is not None and tp.get("max_age_days") is not None:
+            conds.append(f"{base} >= ? - ?")
+            params.extend([tp["ref"], tp["max_age_days"]])
+            conds.append(f"{base} <= ?")
+            params.append(tp["ref"])
+        return conds
+
     # NOTE: MemoryDB（db.py）覆盖了本类的 search_semantic / backfill_vectors，
     # 提供更快的 vector_bin 二进制批量余弦 + json→bin 自动迁移。这里保留
     # 基础实现作为 mixin 独立使用时的参考/兜底，两处行为一致（维度不兼容时跳过）。
-    def search_semantic(self, query, limit=10, category=None, scope=None):
-        """语义搜索: embed query, cosine similarity against stored vectors."""
+    def search_semantic(self, query, limit=10, category=None, scope=None,
+                        time_window=None, ref_time=None, max_age_days=None,
+                        strict_time_window=False):
+        """语义搜索: embed query, cosine similarity against stored vectors.
+
+        v2 时间参数与 search_multi 同语义（temporal = event_time 优先，
+        TTL 仍用 created_at）。MemoryDB（db.py）有二进制批量优化覆盖版，
+        本实现为 mixin 独立使用时的参考/兜底。
+        """
         qvec = self._embed(query)
         if not qvec:
             return []
+        tp = self._resolve_time_params(time_window, ref_time, max_age_days)
         conditions = ["m.vector IS NOT NULL"]
         params = []
         if category: conditions.append("m.category = ?"); params.append(category)
         if scope: conditions.append("m.scope = ?"); params.append(scope)
         conditions.append("(m.ttl IS NULL OR (julianday('now')-julianday(m.created_at))*86400 < m.ttl)")
+        if strict_time_window and tp["active"]:
+            conditions.extend(self._strict_window_sql(tp, params))
         rows = self._conn.execute(
-            f"SELECT * FROM memories m WHERE {' AND '.join(conditions)}", params
+            f"SELECT *, julianday(COALESCE(event_time, created_at)) AS _temporal_jd "
+            f"FROM memories m WHERE {' AND '.join(conditions)}", params
         ).fetchall()
         scored = []
         for r in rows:
             d = dict(r)
             vec = json.loads(d["vector"]) if d.get("vector") else None
             if vec:
+                tjd = d.pop("_temporal_jd", None)
                 d["similarity"] = round(self._cosine_similarity(qvec, vec), 4)
+                d["time_bias"] = round(self._window_bias(tjd, tp), 4)
                 scored.append(d)
-        scored.sort(key=lambda x: x["similarity"], reverse=True)
+        # v2 软重排：bias 乘入排序键（无时间参数时 bias=1.0，行为不变）
+        scored.sort(key=lambda x: x["similarity"] * x.get("time_bias", 1.0), reverse=True)
         return scored[:limit]
 
     def backfill_vectors(self, limit=500):
@@ -128,10 +283,37 @@ class MemorySearch:
         self._conn.commit()
         return count
 
-    def search_multi(self, query, limit=10, category=None, scope=None):
-        """四信号并行检索 + semantic-primary 加权融合。"""
+    def search_multi(self, query, limit=10, category=None, scope=None,
+                     time_window=None, ref_time=None, max_age_days=None,
+                     strict_time_window=False):
+        """四信号并行检索 + semantic-primary 加权融合。
+
+        v2 时间参数（memorykit v2, event_time 检索元数据）:
+          time_window=(start, end)    软约束宽召回：temporal 值（event_time 优先，
+                                      缺省 created_at）落在窗口内 → boost 1.25，
+                                      窗口外 → 0.25 沉底但不剔除。
+          ref_time + max_age_days     基准时间 + 年龄窗口（闭区间
+                                      [ref_time - max_age_days, ref_time]）。
+          strict_time_window=True     窗口改为硬过滤（最终结果 + SQL 条件双重保证）；
+                                      默认 False 仅软重排。
+        只替换 recency rank 与 final `_time_weight` 的输入（temporal 值），
+        TTL 条件仍用 created_at；不传时间参数时行为与 v1 完全一致。
+        """
+        tp = self._resolve_time_params(time_window, ref_time, max_age_days)
         if not query.strip():
-            return self.search(query, limit=limit, category=category, scope=scope)
+            results = self.search(query, limit=limit*4 if tp["active"] else limit,
+                                  category=category, scope=scope)
+            # 空查询 + 时间参数：宽取候选后按时间偏置软重排 / strict 硬过滤
+            if tp["active"]:
+                _tmp = []
+                for d in results:
+                    d["time_bias"] = round(self._window_bias(self._temporal_jd(d), tp), 4)
+                    if not strict_time_window or self._in_time_window(self._temporal_jd(d), tp):
+                        _tmp.append(d)
+                results = sorted(_tmp, key=lambda d: (d.get("importance", 0.0)
+                                                      * d.get("time_bias", 1.0)),
+                                 reverse=True)[:limit]
+            return results
 
         # Signal 1: FTS5
         fts = self.search(query, limit=limit*2, category=category, scope=scope)
@@ -176,7 +358,9 @@ class MemorySearch:
                 _fts_match_ratio[r["key"]] = max(0.15, matched / len(_match_terms))
 
         # Signal 2: Semantic (binary batch + numpy)
-        qvec = self._embed(query)
+        # 一次请求同时取 dense 向量 + sparse 词法权重（hybrid；服务不支持
+        # sparse → qsparse=None，跳过 lexical 完全原逻辑）
+        qvec, qsparse = self._embed_with_sparse(query)
         sem_results = []
         if qvec:
             qvec_np = np.array(qvec, dtype=np.float32)
@@ -282,7 +466,7 @@ class MemorySearch:
                     d["_entity_matches"] = ents; entity_results.append(d)
         entity_rank = {r["key"]: i+1 for i, r in enumerate(entity_results)}
 
-        # Signal 5: Recency
+        # Signal 5: Recency（v2：输入换成 temporal 值 = event_time 优先，缺省 created_at）
         import math as _math
         now_jd = self._conn.execute("SELECT julianday('now')").fetchone()[0]
         # category/scope 过滤与 FTS 信号对齐（审查修复 #2）
@@ -293,13 +477,53 @@ class MemorySearch:
         if scope:
             recency_conds.append("scope = ?"); recency_params.append(scope)
         recency_where = (" WHERE " + " AND ".join(recency_conds)) if recency_conds else ""
+        # 只替换 recency rank 的输入（event_time 优先），TTL 条件仍用 created_at
         recency_rows = self._conn.execute(
-            "SELECT key, julianday(created_at) as jd FROM memories" + recency_where,
+            "SELECT key, julianday(COALESCE(event_time, created_at)) as jd FROM memories"
+            + recency_where,
             recency_params
         ).fetchall()
         days_rank = [(r["key"], max(0, now_jd - r["jd"])) for r in recency_rows]
         days_rank.sort(key=lambda x: x[1])
         recency_rank = {key: i+1 for i, (key, _) in enumerate(days_rank)}
+
+        # Signal 6: Sparse lexical（hybrid —— bge-m3 sparse token 权重重叠）
+        # query sparse 不可用（GGUF 8082 / 注入 embedder 无 sparse 支持 /
+        # 空 dict）→ 跳过整段，融合逻辑与旧版完全一致（零行为变化）。
+        # 候选 sparse 为 NULL / 畸形 JSON → 该条 lexical 分 0（不剔除）。
+        # 归一化：raw 除以候选池最大 raw（max-normalization，尺度无关）。
+        _lex_norm: dict[str, float] = {}
+        if qsparse:
+            _lex_conds = ["sparse IS NOT NULL", "sparse != ''"]
+            _lex_params = []
+            # category/scope 过滤与其它信号对齐（审查修复 #2 口径）
+            if category:
+                _lex_conds.append("category = ?"); _lex_params.append(category)
+            if scope:
+                _lex_conds.append("scope = ?"); _lex_params.append(scope)
+            _lex_rows = self._conn.execute(
+                "SELECT key, sparse FROM memories WHERE "
+                + " AND ".join(_lex_conds), _lex_params
+            ).fetchall()
+            _lex_raw: dict[str, float] = {}
+            for _lr in _lex_rows:
+                try:
+                    _sd = json.loads(_lr["sparse"])
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if not isinstance(_sd, dict) or not _sd:
+                    continue
+                # BM25 简化重叠分：sum(min(wq, ws) for token in 交集)
+                _s = 0.0
+                for _tok, _wq in qsparse.items():
+                    _ws = _sd.get(_tok)
+                    if _ws:
+                        _s += _wq if _wq < _ws else _ws
+                if _s > 0:
+                    _lex_raw[_lr["key"]] = _s
+            _lex_max = max(_lex_raw.values()) if _lex_raw else 0.0
+            if _lex_max > 0:
+                _lex_norm = {_k: _v / _lex_max for _k, _v in _lex_raw.items()}
 
         # ── Semantic-primary fusion ──
         _all_content_keys = set(fts_rank) | set(sem_rank) | set(tag_rank) | set(entity_rank)
@@ -326,6 +550,9 @@ class MemorySearch:
                 score += 0.015
             if key in entity_rank:
                 score += 0.025
+            if key in _lex_norm:
+                # hybrid lexical：归一化重叠分 × 可配权重（默认 0.3）加性融合
+                score += self.LEXICAL_WEIGHT * _lex_norm[key]
             if key in _intersection_keys and len(_match_terms) > 1:
                 score *= 1.25
             if key in recency_rank:
@@ -334,22 +561,39 @@ class MemorySearch:
 
         fused = []
         for key in all_keys:
-            row = self._conn.execute("SELECT * FROM memories WHERE key=?", (key,)).fetchone()
+            # v2: 顺带算 temporal julian day（event_time 优先），供时间偏置/硬过滤复用
+            row = self._conn.execute(
+                "SELECT *, julianday(COALESCE(event_time, created_at)) AS _temporal_jd "
+                "FROM memories WHERE key=?", (key,)
+            ).fetchone()
             if row:
                 d = dict(row)
+                _tjd = d.pop("_temporal_jd", None)
                 # 兜底（审查修复 #2）：最终结果再按 category/scope 过滤一次，
                 # 保证 'category=protocol 只返回 protocol' 不变量，即使某个信号漏过滤也不泄漏。
                 if category and d.get("category") != category:
                     continue
                 if scope and d.get("scope") != scope:
                     continue
+                # v2 strict 时间窗口：最终结果硬过滤（与 category/scope 同级兜底）
+                if strict_time_window and not self._in_time_window(_tjd, tp):
+                    continue
                 _base = _fused_scores.get(key, 0.0)
                 # 环3 验证回流 + 环4 时间感知：最终得分 = 融合分 × verification × time
                 # （verified 前移 / disputed、STALE 沉底；近期记忆优先，老记忆保底 30%）
+                # v2: `_time_weight` 输入换成 temporal 值（event_time 优先，缺省 created_at）
                 d["rrf_raw"] = round(_base, 5)
-                _tw = self._time_weight(d.get("created_at"))
+                # hybrid：lexical 激活时透明暴露 sparse_score（归一化重叠分，
+                # 无重叠/候选 sparse NULL → 0.0）；未激活（GGUF 等）不出现该字段
+                if _lex_norm:
+                    d["sparse_score"] = round(_lex_norm.get(key, 0.0), 4)
+                _tw = self._time_weight(self._temporal_value(d))
                 d["time_weight"] = round(_tw, 4)
-                d["rrf_score"] = round(_base * self._verify_weight(d.get("verification_status")) * _tw, 5)
+                # v2 时间窗口软重排：bias 乘入最终得分（无时间参数时恒 1.0）
+                _wb = self._window_bias(_tjd, tp)
+                d["time_bias"] = round(_wb, 4)
+                d["rrf_score"] = round(_base * self._verify_weight(d.get("verification_status"))
+                                       * _tw * _wb, 5)
                 fused.append(d)
         fused.sort(key=lambda x: x["rrf_score"], reverse=True)
         result = fused[:limit]

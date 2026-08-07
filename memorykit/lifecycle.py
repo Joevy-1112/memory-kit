@@ -58,10 +58,44 @@ def _anchor_time(text: str, now: datetime | None = None) -> str:
     return text
 
 
+def _parse_ts(value) -> datetime | None:
+    """宽松解析时间戳：'YYYY-MM-DD HH:MM:SS' 或 'YYYY-MM-DD'；失败返回 None。"""
+    if not value:
+        return None
+    s = str(value).strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+# learn() 预计算向量哨兵（learn_batch 批量路径用）：
+#   不传 precomputed_vec            → 单条原行为（learn 内部 _embed 嵌入）
+#   显式传 precomputed_vec=<向量>   → 跳过内部嵌入，直接用预计算向量
+#   显式传 precomputed_vec=None     → 跳过内部嵌入（批量嵌入已失败 → 离线降级，
+#                                      走实体去重兜底，不二次嵌入）
+# 用哨兵而非 None 作默认，是为了区分「未提供」（需要嵌入）与
+# 「批量已尝试且失败」（不应再嵌入）两种语义。
+_NO_PRECOMPUTED_VEC = object()
+
+# learn() 预计算 sparse 哨兵（learn_batch 批量路径用，语义同 precomputed_vec）：
+#   不传 precomputed_sparse            → 单条路径（learn 内部 _embed_with_sparse 自取）
+#   显式传 precomputed_sparse=<dict>   → 直接用预计算 sparse（批量已嵌入）
+#   显式传 precomputed_sparse=None     → 无 sparse（批量嵌入失败/服务不支持），
+#                                        降级纯 dense，不二次请求
+_NO_PRECOMPUTED_SPARSE = object()
+
+
 class MemoryLifecycle:
     """Mixin: lifecycle methods for MemoryDB."""
 
     DECAY_TAU = {"slow": 90, "medium": 30, "fast": 7}
+    # ── event_time merge 保护（memorykit v2）──
+    # 旧条目已有 event_time 且新 event_time 与之相距超过该阈值（天）时，
+    # 视为两次独立事件（内容相似只是巧合/演进），合并时保留旧 event_time 不覆盖。
+    MERGE_EVENT_TIME_MAX_GAP_DAYS = 7
     # ── 环2 遗忘状态机阈值（memory-v2-plan.md 环2，评审 #4 分档确认）──
     # 双信号：TTL 显式过期（ttl 列，秒） + accessed_at 超时未访问
     STALE_AFTER_DAYS = {"slow": 90, "medium": 30, "fast": 7}      # active→stale 超时阈值
@@ -271,6 +305,9 @@ class MemoryLifecycle:
     #    "vscore": 0.85,                    # 验证得分 0-1
     #    "sids": [123, 456],                # 匹配到的源消息ID
     #    "method": "keyword|entity|both",   # 验证方法
+    #    "fallback": true,                  # state.db 缺失/无源 → 库内轻量验证
+    #                                       # （method: similarity|time_anchor|
+    #                                       #   entity_density，可 "+" 组合）
     #    "downgrade": 0.1}                  # importance 降级量
 
     # ── 中文停用词 (CJK stopwords) ──
@@ -422,6 +459,128 @@ class MemoryLifecycle:
 
         return result
 
+    # ── 轻量验证兜底（2026-08-07 小龙虾反馈 #4：验证闭环空转 vscore=0）──
+    # OpenClaw 侧 bridge.py 调 MemoryDB 时 state_db_path 为 None（小龙虾库
+    # 没有 state.db），_cross_check 永远拿不到源消息 → _maybe_auto_verify 恒
+    # return "pending"、vscore 恒 0。这里提供 state.db 缺失/无源 session 时的
+    # 库内轻量验证：不依赖外部源，只用记忆库自身信息给保守的非零分。
+    # 只影响 confidence 与 provenance 展示，不参与去重/写入决策。
+    def _lightweight_verify(self, content: str, exclude_key: str = None,
+                            entities: list = None) -> dict:
+        """轻量验证兜底：state.db 缺失 / 无源 session 时给非零 vscore。
+
+        三个互不依赖的证据方案，取最高分：
+          方案A similarity —— 库内检索与 content 高相似（cos>0.85，同维度）
+            的其他记忆作为交叉证据：证据数 n → 0.3 + 0.15*(n-1)，封顶 0.7
+          方案B time_anchor —— content 含绝对日期（YYYY-MM-DD / YYYY年M月D日
+            等）且与 created_at/event_time 无矛盾（|Δ|≤400 天）→ 0.30
+          方案C entity_density —— 实体数适中（2-8 个）且非空 → 0.25
+
+        返回 {"score": 0-1, "method": "similarity|time_anchor|entity_density"
+              （多方案 "+" 连接）, "evidence": {方案名: 详情}}；
+        无任何证据 → {"score": 0.0, "method": "none", "evidence": {}}。
+        纯读 + 轻量计算，任何异常内部消化，绝不抛给调用方。
+        """
+        result = {"score": 0.0, "method": "none", "evidence": {}}
+        if not content or len(str(content).strip()) < 10:
+            return result
+        plans = {}
+
+        # ── 方案A: 库内相似记忆一致性 ──
+        try:
+            import numpy as np  # noqa: PLC0415 — 与 learn() 本地导入一致
+            own = None
+            if exclude_key:
+                own = self._conn.execute(
+                    "SELECT vector_bin, vector FROM memories WHERE key=?",
+                    (exclude_key,),
+                ).fetchone()
+            if own is not None:
+                own_vec = None
+                if own["vector_bin"] is not None:
+                    own_vec = np.frombuffer(own["vector_bin"], dtype=np.float32)
+                elif own["vector"]:
+                    try:
+                        dv = (json.loads(own["vector"])
+                              if isinstance(own["vector"], str) else own["vector"])
+                        own_vec = np.array(dv, dtype=np.float32)
+                    except Exception:
+                        own_vec = None
+                if own_vec is not None and own_vec.size > 0 \
+                        and np.linalg.norm(own_vec) > 0:
+                    qdim = int(own_vec.size)
+                    rows = self._conn.execute(
+                        "SELECT key, vector_bin FROM memories "
+                        "WHERE key != ? AND vector_bin IS NOT NULL",
+                        (exclude_key,),
+                    ).fetchall()
+                    blobs = []
+                    for r in rows:
+                        if self._vector_dim_from_blob(r["vector_bin"]) == qdim:
+                            blobs.append(r["vector_bin"])
+                    evidence_n = 0
+                    if blobs:
+                        vecs = np.array([np.frombuffer(b, dtype=np.float32)
+                                         for b in blobs])
+                        sims = (np.dot(vecs, own_vec)
+                                / np.maximum(
+                                    np.linalg.norm(vecs, axis=1)
+                                    * np.linalg.norm(own_vec), 1e-10))
+                        evidence_n = int((sims > 0.85).sum())
+                    if evidence_n > 0:
+                        plans["similarity"] = (
+                            round(min(0.7, 0.3 + 0.15 * (evidence_n - 1)), 3),
+                            {"evidence_count": evidence_n})
+        except Exception:
+            pass  # 方案A失败不影响其余方案
+
+        # ── 方案B: 时间锚定 ──
+        try:
+            m = re.search(r"(\d{4})[-年/](\d{1,2})[-月/](\d{1,2})日?", content)
+            day = 1
+            if not m:
+                m = re.search(r"(\d{4})年(\d{1,2})月", content)
+            elif m:
+                day = int(m.group(3))
+            if m:
+                try:
+                    content_dt = datetime(int(m.group(1)), int(m.group(2)), day)
+                except ValueError:
+                    content_dt = None
+                if content_dt is not None:
+                    ref_dt = None
+                    if exclude_key:
+                        row = self._conn.execute(
+                            "SELECT created_at, event_time FROM memories WHERE key=?",
+                            (exclude_key,),
+                        ).fetchone()
+                        if row is not None:
+                            ref_dt = (_parse_ts(row["event_time"])
+                                      or _parse_ts(row["created_at"]))
+                    if ref_dt is None:
+                        ref_dt = datetime.now()
+                    if abs((content_dt - ref_dt).days) <= 400:
+                        plans["time_anchor"] = (
+                            0.30, {"date": content_dt.strftime("%Y-%m-%d")})
+        except Exception:
+            pass
+
+        # ── 方案C: 实体密度 ──
+        try:
+            ents = entities if entities is not None else self._extract_entities(content)
+            if ents and 2 <= len(ents) <= 8:
+                plans["entity_density"] = (0.25, {"entity_count": len(ents)})
+        except Exception:
+            pass
+
+        if plans:
+            best = max(plans.items(), key=lambda kv: kv[1][0])
+            order = ["similarity", "time_anchor", "entity_density"]
+            result["score"] = best[1][0]
+            result["method"] = "+".join(n for n in order if n in plans)
+            result["evidence"] = {k: v[1] for k, v in plans.items()}
+        return result
+
     def verify(self, key: str, auto_degrade: bool = True,
                degrade_threshold: float = 0.3) -> dict:
         """验证单条记忆：交叉检查源session → 评分 → 可选自动降级。
@@ -484,6 +643,24 @@ class MemoryLifecycle:
         method = xc["method"]
         matched_ids = xc["matched_ids"]
 
+        # 降级路径（2026-08-07 修复）：state.db 缺失 → _cross_check 拿不到源
+        # 消息（method=none 且无 matched_ids），此时 score=0 会被 auto_degrade
+        # 误判成"证据不足"而把 importance 腰斩——改为库内轻量验证兜底给真实分。
+        # 注意区分：源消息可达但零重叠（matched_ids 非空）是"查过源、无支撑"，
+        # 保持原 degrade 语义不动。
+        fallback_used = False
+        if score == 0.0 and method == "none" and not matched_ids:
+            lw = self._lightweight_verify(content, exclude_key=key)
+            if lw and (lw.get("score") or 0.0) > 0.0:
+                score = lw["score"]
+                method = lw["method"]
+                fallback_used = True
+                logger.info(
+                    "[verify] state.db 源消息不可达 → 库内轻量验证 key=%s "
+                    "score=%.3f method=%s", key, score, method)
+            else:
+                prov.pop("fallback", None)
+
         # 更新 provenance
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         prov["v"] = "verified"
@@ -501,7 +678,22 @@ class MemoryLifecycle:
         }
 
         # 自动降级逻辑
-        if auto_degrade and score < degrade_threshold:
+        if fallback_used and score < degrade_threshold:
+            # 降级路径（state.db 不可达）低分：无外部证据 ≠ 矛盾——
+            # 不降 importance、不 boost，记录低分并标 unverifiable（等源可查重验）
+            prov["fallback"] = True
+            prov["v"] = "unverifiable"
+            with self._tx():
+                self._conn.execute(
+                    "UPDATE memories SET provenance=? WHERE id=?",
+                    (json.dumps(prov, ensure_ascii=False), d["id"])
+                )
+            result["verification"] = "unverifiable"
+            result["reason"] = "state.db 不可达，库内轻量验证分数不足"
+            logger.info(
+                "[verify] key=%s fallback score=%.3f < %.2f → unverifiable "
+                "（源不可达不降级）", key, score, degrade_threshold)
+        elif auto_degrade and score < degrade_threshold:
             # 降级 importance: 乘以 (0.5 + score) 因子
             degrade_factor = 0.5 + score * 1.0  # score=0 → 0.5, score=0.29 → 0.79
             new_imp = round(importance * degrade_factor, 2)
@@ -524,6 +716,10 @@ class MemoryLifecycle:
                         key, score, importance, new_imp)
         else:
             # 高分 → 标记 verified
+            if fallback_used:
+                prov["fallback"] = True
+            else:
+                prov.pop("fallback", None)
             if score >= 0.5:
                 # 高验证分: 小幅提升 importance (但不超过原值+0.05)
                 boost = min(0.05, score * 0.05)
@@ -699,8 +895,37 @@ class MemoryLifecycle:
             "pending_pct": round(by_status.get("pending", 0) / max(total, 1) * 100, 1),
         }
 
-    def learn(self, content, source="task", source_session=None):
-        """自动学习：评分分类+语义去重+原话保留+session关联。"""
+    def learn(self, content, source="task", source_session=None, event_time=None,
+              precomputed_vec=_NO_PRECOMPUTED_VEC,
+              precomputed_sparse=_NO_PRECOMPUTED_SPARSE,
+              auto_verify: bool = True):
+        """自动学习：评分分类+语义去重+原话保留+session关联。
+
+        event_time: 事件发生时间（'YYYY-MM-DD[ HH:MM:SS]'），v2 检索元数据。
+        仅参与检索时间偏置；不参与 TTL/遗忘状态机/写入去重年龄判断。
+        合并去重时受 MERGE_EVENT_TIME_MAX_GAP_DAYS 保护（相距过远保留旧值）。
+
+        auto_verify: 新写入记忆 importance>0.6（高于 learn 基数 0.6，即被
+        高重要度关键词/source 抬升）时，做一次轻量验证：有 state.db + 有源
+        session → _cross_check 交叉检查源消息；state.db 缺失/无源 session →
+        _lightweight_verify 库内轻量验证（相似记忆/时间锚/实体密度，非零
+        vscore + method，provenance 记 fallback=true）。只写 provenance 痕迹
+        + 高分小幅提升 confidence，不参与去重/写入决策；无证据 → 保持 pending
+        不降级，learn 主流程不受阻。
+        返回 dict 的 verify 字段给出实际验证状态（pending|verified）。
+
+        precomputed_vec: 预计算嵌入向量（learn_batch 批量路径传入）。
+        传向量或显式 None 都会跳过内部 _embed 调用（None=批量嵌入失败，
+        离线降级走实体去重兜底）；不传（默认）= 单条原行为，内部 _embed 嵌入。
+        嵌入输入与 learn_batch 对齐：strip + _anchor_time 锚定 + 5000 截断。
+
+        precomputed_sparse: 预计算稀疏词法权重 {token_id_str: weight}
+        （learn_batch 批量路径传入，与 precomputed_vec 同一次请求解析）。
+        单条路径（不传）内部 _embed_with_sparse 一次请求同时取 dense+sparse；
+        批量路径传 dict 直接用、传 None 表示服务不支持/失败 → 降级纯 dense。
+        合并去重时 sparse 与 vector 同策略：保留旧值不覆盖（内容合并后不
+        重新嵌入，dense 也是旧的）。
+        """
         if not content or len(content.strip()) < 10:
             return {"error": "content too short"}
         content = content.strip()
@@ -739,9 +964,134 @@ class MemoryLifecycle:
 
         # ---- Infer: 语义+图解混合去重 ----
         # Compute embedding once, use for both dedup and storage
-        qvec = self._embed(content[:5000])
+        if precomputed_vec is _NO_PRECOMPUTED_VEC:
+            # 单条路径：一次请求同时取 dense 向量 + sparse 词法权重
+            # （服务不支持 sparse → sparse=None，纯 dense 降级）
+            qvec, qsparse = self._embed_with_sparse(content[:5000])
+        else:
+            # learn_batch 批量路径：向量已预计算（None=批量嵌入失败 → 离线降级，
+            # 不二次嵌入，后续走实体去重兜底）；sparse 同批预计算（None=服务
+            # 不支持/失败 → 降级纯 dense，不二次请求）
+            qvec = precomputed_vec
+            qsparse = (None if precomputed_sparse is _NO_PRECOMPUTED_SPARSE
+                       else precomputed_sparse)
         new_entities = self._extract_entities(content)  # 提取实体用于图解信号
         merged = False
+
+        # ── learn 侧自动接 episodic 索引 + 轻量验证（2026-08-07 小龙虾反馈 #2/#3）──
+        # episodic_start/end 原本只被 CLI 手动调用，learn 流程从不记录，导致
+        # source_session 有值但 episodic 表无对应行（mk_episodic list 空、
+        # "追溯 state 原文"链路断裂）。这里在 learn 成功路径自动补索引。
+        def _episodic_touch():
+            """source_session 存在时确保 episodic 索引有记录（幂等）。
+
+            episodic_start 用 INSERT OR IGNORE（同一 session 不重复建行）；
+            episodic_end 轻量更新 summary/tags/outcome，让最新学到内容可被
+            episodic_search 检索。辅助索引失败不影响 learn 主流程。
+            """
+            if not source_session:
+                return
+            try:
+                self.episodic_start(source_session, source="learn")
+                self.episodic_end(
+                    source_session,
+                    summary=content[:200],
+                    tags=",".join(sorted(tags))[:200],
+                    outcome="merged" if merged else "learned",
+                )
+            except Exception:
+                pass
+
+        def _maybe_auto_verify(final_key, final_imp, final_content):
+            """importance>0.6 时做一次轻量验证（交叉检查或库内兜底）。
+
+            保守策略（小龙虾反馈 #3/#4）：learn 后 verify 闭环不再空转——
+            state.db 存在且有源 session → _cross_check 交叉检查源消息；
+            state.db 缺失 / 无源 session → _lightweight_verify 库内轻量验证
+            （相似记忆一致性/时间锚/实体密度，给非零 vscore + method）。
+            不阻塞主流程、不参与去重/写入决策：无证据 → 保持 pending 不降级、
+            不写痕迹；高分（>=0.5）→ provenance 记 v=verified + vscore +
+            method + sids，并小幅提升 confidence（与 verify() 高分 boost 对齐）。
+            阈值取 >0.6 而非 >=0.6：learn() 的 importance 基数就是 0.6（普通
+            记忆默认值），只有被 high_imp 关键词/correction/discovery 抬高的
+            "高重要度"记忆才值得立即验证，避免每条 learn 都背额外开销。
+            返回 verify 状态字符串：pending | verified。
+            """
+            if not auto_verify or final_imp <= 0.6:
+                return "pending"
+            import os as _os
+            state_path = getattr(self, "state_db_path", None)
+            state_ok = bool(state_path) and _os.path.exists(state_path)
+            xc = None
+            lw = None
+            if state_ok and source_session:
+                try:
+                    xc = self._cross_check(final_content, source_session)
+                except Exception:
+                    xc = None
+            if xc is None:
+                # 降级路径：state.db 缺失/无源 session → 库内轻量验证兜底
+                try:
+                    lw = self._lightweight_verify(final_content,
+                                                  exclude_key=final_key)
+                except Exception:
+                    lw = None
+            if xc is not None:
+                score = xc.get("score") or 0.0
+                method = xc.get("method") or "none"
+                matched_ids = xc.get("matched_ids") or []
+            elif lw is not None and (lw.get("score") or 0.0) > 0:
+                score = lw["score"]
+                method = lw.get("method") or "none"
+                matched_ids = []
+            else:
+                # 两条路径都无证据 → 保持原样 pending（不写痕迹、不误报）
+                return "pending"
+            try:
+                row = self._conn.execute(
+                    "SELECT provenance, confidence FROM memories WHERE key=?",
+                    (final_key,),
+                ).fetchone()
+                prov = {}
+                old_conf = 0.45
+                if row:
+                    if row["provenance"]:
+                        try:
+                            prov = (json.loads(row["provenance"])
+                                    if isinstance(row["provenance"], str)
+                                    else row["provenance"])
+                        except (json.JSONDecodeError, TypeError):
+                            prov = {}
+                    if row["confidence"] is not None:
+                        old_conf = row["confidence"]
+                prov["auto_vt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                prov["vscore"] = round(score, 4)
+                prov["method"] = method
+                if matched_ids:
+                    prov["sids"] = matched_ids[:20]
+                prov["auto"] = True
+                if lw is not None:
+                    prov["fallback"] = True  # 降级路径（库内轻量验证）标记
+                else:
+                    prov.pop("fallback", None)
+                if score >= 0.5:
+                    prov["v"] = "verified"
+                    new_conf = round(min(old_conf + 0.05, 0.95), 2)
+                    if new_conf > old_conf:
+                        self._conn.execute(
+                            "UPDATE memories SET confidence=? WHERE key=?",
+                            (new_conf, final_key),
+                        )
+                else:
+                    prov["v"] = "pending"
+                with self._tx():
+                    self._conn.execute(
+                        "UPDATE memories SET provenance=? WHERE key=?",
+                        (json.dumps(prov, ensure_ascii=False), final_key),
+                    )
+                return prov["v"]
+            except Exception:
+                return "pending"
 
         def _entity_overlap(new_ents, old_ents_json):
             """计算实体重叠数。"""
@@ -755,6 +1105,44 @@ class MemoryLifecycle:
             except (json.JSONDecodeError, TypeError):
                 return 0
 
+        def _merge_entities(new_ents, old_ents_json):
+            """合并实体：new_entities ∪ 旧记录已有 entities（JSON 解析），去重保序。
+
+            merge 路径不重抽实体导致旧记录 entities 恒为 null（中文专名丢失根因，
+            2026-08-07 小龙虾实测）：这里把本条内容抽出的实体与旧记录已有实体
+            做并集，保证 merge 后 entities 至少包含本条实词。纯附加，不影响
+            match 判定（判定在 merge 前已完成）。旧实体解析失败/为空 → 直接用
+            new_entities。
+            """
+            merged = list(new_ents) if new_ents else []
+            seen = set(merged)
+            if old_ents_json:
+                try:
+                    old = json.loads(old_ents_json) if isinstance(old_ents_json, str) else old_ents_json
+                    if isinstance(old, list):
+                        for e in old:
+                            if e and e not in seen:
+                                merged.append(e)
+                                seen.add(e)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            return merged
+
+        def _merge_tags(new_tags, old_tags_str):
+            """合并 tags：本条内容 tags ∪ 旧记录 tags（逗号分隔），去重排序。
+
+            merge 内容为 old_content ||| new_content，旧 tags 依然适用；
+            仅用新 tags 覆盖会把旧内容的关键词标签丢掉。
+            """
+            merged = set(new_tags) if new_tags else set()
+            if old_tags_str:
+                for t in str(old_tags_str).split(","):
+                    t = t.strip()
+                    if t:
+                        merged.add(t)
+            return sorted(merged)
+
+
         def _fusion_score(sim, overlap):
             """向量+图解信号融合。乘性boost，Hindsight保守路线。"""
             if overlap >= 2:
@@ -767,7 +1155,7 @@ class MemoryLifecycle:
             import struct, numpy as np
             qvec_np = np.array(qvec, dtype=np.float32)
             rows = self._conn.execute(
-                "SELECT id, key, content, importance, source_session, vector, vector_bin, entities FROM memories WHERE vector IS NOT NULL"
+                "SELECT id, key, content, importance, source_session, vector, vector_bin, entities, tags, event_time FROM memories WHERE vector IS NOT NULL"
             ).fetchall()
             
             # Fast path: batch cosine over binary blobs
@@ -846,26 +1234,65 @@ class MemoryLifecycle:
                 else:
                     merged_content = content or old_content
 
+                # ── event_time merge 保护（memorykit v2）──
+                # event_time 是事件发生时间（纯检索元数据，不参与去重年龄判断/
+                # TTL/状态机）。旧条目已有 event_time 且新 event_time 与其相距
+                # 超过 MERGE_EVENT_TIME_MAX_GAP_DAYS（7 天）时，保守保留旧值：
+                # 相距如此之远说明是两次独立事件（只是内容相似），合并只做内容
+                # 去重，不应篡改原事件的时点身份；≤7 天视为同一事件的补充描述，
+                # 以新值为准；新条目未带 event_time 时同样保留旧值（不置空）。
+                merged_event_time = best.get("event_time")
+                _old_dt = _parse_ts(best.get("event_time"))
+                _new_dt = _parse_ts(event_time)
+                if _old_dt and _new_dt and abs((_new_dt - _old_dt).days) > self.MERGE_EVENT_TIME_MAX_GAP_DAYS:
+                    merged_event_time = best.get("event_time")  # 保留旧值，不覆盖
+                    logger.info(
+                        "[learn] event_time gap > %d days (old=%s, new=%s) → 保留旧 event_time",
+                        self.MERGE_EVENT_TIME_MAX_GAP_DAYS, best.get("event_time"), event_time)
+                elif event_time:
+                    merged_event_time = event_time
+
+                # ── 实体/tags 合并（2026-08-07 小龙虾实测根因修复）──
+                # merge 路径此前不重抽 entities：旧记录 entities 为 null 时
+                # 合并后恒 null，中文专名在所有管道里都丢失。这里把本条新抽
+                # 实体 ∪ 旧记录已有实体（去重保序）写回；tags 同理并入旧值
+                # （merged_content 含旧内容，旧 tags 依然适用）。
+                merged_entities = _merge_entities(new_entities, best.get("entities"))
+                merged_tags = _merge_tags(tags, best.get("tags"))
+                entities_json = (json.dumps(merged_entities, ensure_ascii=False)
+                                 if merged_entities else None)
+
                 with self._tx():
                     self._conn.execute("""
                         UPDATE memories SET
                             content=?, importance=?, accessed_at=datetime('now'),
                             updated_at=datetime('now'), source_session=?,
-                            tags=?, category=?, decay_profile=?, provenance=?
+                            tags=?, category=?, entities=?, decay_profile=?, provenance=?,
+                            event_time=?
                         WHERE id=?
-                    """, (merged_content, new_imp, merged_sessions, ",".join(sorted(tags)),
-                          category, None, new_prov, best["id"]))
+                    """, (merged_content, new_imp, merged_sessions, ",".join(merged_tags),
+                          category, entities_json, None, new_prov, merged_event_time,
+                          best["id"]))
+                if merged_entities:
+                    # 实体关联表同步（与 set() 的 _update_entity_links 对齐）
+                    try:
+                        self._update_entity_links(best["id"], old_key, merged_entities)
+                    except Exception:
+                        pass
                 merged = True
                 logger.info("[learn] merged into existing key=%s (fusion=%.3f, sim=%.3f, entity_overlap=%d, imp=%.2f→%.2f, verify=pending)",
                             old_key, matches[0][0], matches[0][1], matches[0][2], old_imp, new_imp)
+                _episodic_touch()
+                v_status = _maybe_auto_verify(old_key, new_imp, merged_content)
                 return {"key": old_key, "category": category, "importance": new_imp,
-                        "tags": ",".join(sorted(tags)), "merged": True,
-                        "sim": round(matches[0][1], 3), "fusion": round(matches[0][0], 3)}
+                        "tags": ",".join(merged_tags), "merged": True,
+                        "sim": round(matches[0][1], 3), "fusion": round(matches[0][0], 3),
+                        "verify": v_status}
 
         # 兜底: 嵌入离线 + 实体去重
         if not qvec and new_entities and len(new_entities) >= 3:
             rows = self._conn.execute(
-                "SELECT id, key, content, importance, source_session, entities FROM memories WHERE entities IS NOT NULL AND entities != 'null'"
+                "SELECT id, key, content, importance, source_session, entities, tags, event_time FROM memories WHERE entities IS NOT NULL AND entities != 'null'"
             ).fetchall()
             matches = []
             for r in rows:
@@ -904,21 +1331,46 @@ class MemoryLifecycle:
                 else:
                     merged_content = content or old_content
 
+                # ── event_time merge 保护（同向量合并路径，见上注释）──
+                merged_event_time = best.get("event_time")
+                _old_dt = _parse_ts(best.get("event_time"))
+                _new_dt = _parse_ts(event_time)
+                if _old_dt and _new_dt and abs((_new_dt - _old_dt).days) > self.MERGE_EVENT_TIME_MAX_GAP_DAYS:
+                    merged_event_time = best.get("event_time")  # 保留旧值，不覆盖
+                elif event_time:
+                    merged_event_time = event_time
+
+                # ── 实体/tags 合并（同向量合并路径，见上注释）──
+                merged_entities = _merge_entities(new_entities, best.get("entities"))
+                merged_tags = _merge_tags(tags, best.get("tags"))
+                entities_json = (json.dumps(merged_entities, ensure_ascii=False)
+                                 if merged_entities else None)
+
                 with self._tx():
                     self._conn.execute("""
                         UPDATE memories SET
                             content=?, importance=?, accessed_at=datetime('now'),
                             updated_at=datetime('now'), source_session=?,
-                            tags=?, category=?, decay_profile=?, provenance=?
+                            tags=?, category=?, entities=?, decay_profile=?, provenance=?,
+                            event_time=?
                         WHERE id=?
-                    """, (merged_content, new_imp, merged_sessions, ",".join(sorted(tags)),
-                          category, None, new_prov, best["id"]))
+                    """, (merged_content, new_imp, merged_sessions, ",".join(merged_tags),
+                          category, entities_json, None, new_prov, merged_event_time,
+                          best["id"]))
+                if merged_entities:
+                    try:
+                        self._update_entity_links(best["id"], old_key, merged_entities)
+                    except Exception:
+                        pass
                 merged = True
                 logger.info("[learn] entity-only merge into key=%s (overlap=%d, imp=%.2f→%.2f, verify=pending)",
                             old_key, matches[0][0], old_imp, new_imp)
+                _episodic_touch()
+                v_status = _maybe_auto_verify(old_key, new_imp, merged_content)
                 return {"key": old_key, "category": category, "importance": new_imp,
-                        "tags": ",".join(sorted(tags)), "merged": True,
-                        "sim": 0, "fusion": round(matches[0][0] / 5.0, 3)}
+                        "tags": ",".join(merged_tags), "merged": True,
+                        "sim": 0, "fusion": round(matches[0][0] / 5.0, 3),
+                        "verify": v_status}
 
         # ---- No match found — create new entry ----
         short = content[:30].replace(" ","_").replace("\n","_")
@@ -929,10 +1381,78 @@ class MemoryLifecycle:
         # ── 验证管线: 新条目标记 pending_verification ──
         init_prov = json.dumps({"v": "pending"}, ensure_ascii=False)
         self.set(key, content, category=category, tags=",".join(sorted(tags)),
-                 importance=imp, embed=True, source_session=source_session,
-                 vector=qvec)
+                 importance=imp,
+                 # 批量路径向量已定（含 None=嵌入失败），不再二次嵌入；
+                 # 单条路径保持原行为 embed=True（_embed 失败时 set 内兜底重试一次）
+                 embed=(precomputed_vec is _NO_PRECOMPUTED_VEC),
+                 source_session=source_session,
+                 vector=qvec, sparse=qsparse, event_time=event_time)
         # set() 不传 provenance，这里补写（_tx 保证事务闭合）
         with self._tx():
             self._conn.execute("UPDATE memories SET provenance=? WHERE key=?", (init_prov, key))
+        # ── learn 侧闭环：episodic 索引 + 高重要度轻量验证（反馈 #2/#3）──
+        _episodic_touch()
+        v_status = _maybe_auto_verify(key, imp, content)
         return {"key": key, "category": category, "importance": imp,
-                "tags": ",".join(sorted(tags)), "merged": False, "verify": "pending"}
+                "tags": ",".join(sorted(tags)), "merged": False,
+                "verify": v_status}
+
+    # learn_batch 批量嵌入的每批条数（embed_batch 一次 HTTP 请求的上限）。
+    # 本地 llama.cpp 实测 500 条 ≈ 3.4s；128/批保证单请求 <1s 且不撑爆服务端
+    # 内存/超时（embed_batch 超时下限 30s 覆盖）。
+    EMBED_BATCH_CHUNK = 128
+
+    def learn_batch(self, items: list) -> list:
+        """批量学习：一次批量嵌入 + 逐条复用 learn 逻辑（零二次嵌入）。
+
+        items 每项: {"content": str, "source": str, "source_session": str,
+                     "event_time": str}（source/event_time/source_session 可省略，
+        缺省与 learn() 相同）。返回与 items 一一对应的 learn() 结果列表
+        （过短条目返回 {"error": "content too short"}）。
+
+        实现:
+          1. 全量 content 先批量嵌入（_embed_batch，按 EMBED_BATCH_CHUNK 分块），
+             向量与 items 顺序对齐；失败条目对应 None。
+          2. 逐条调用 learn(precomputed_vec=向量) —— 评分分类/向量+实体融合去重/
+             写库/merge+event_time 保护全部复用 learn() 原逻辑，唯一区别是跳过
+             内部 _embed。批量嵌入失败的条目显式传 None，同样不二次嵌入
+             （离线降级，走实体去重兜底，与 learn 嵌入离线行为一致）。
+
+        嵌入输入与 learn() 完全对齐：strip + _anchor_time 锚定 + 5000 截断，
+        保证预计算向量与单条 learn 自嵌入结果一致。
+        """
+        if not items:
+            return []
+        results: list = []
+        valid: list = []  # (item, orig_index) —— 待 learn 的条目
+        for i, item in enumerate(items):
+            if not isinstance(item, dict):
+                results.append({"error": "invalid item"})
+                continue
+            content = item.get("content")
+            if not content or len(str(content).strip()) < 10:
+                results.append({"error": "content too short"})
+                continue
+            valid.append((item, i))
+            results.append(None)  # 占位，稍后回填 learn 结果
+        if valid:
+            # 与 learn() 对齐的嵌入输入：strip + 时间锚定 + 5000 截断
+            texts = [_anchor_time(str(it["content"]).strip())[:5000] for it, _ in valid]
+            pairs: list = []
+            # 批量路径：分块调用 _embed_batch_with_sparse（每块一次 HTTP 请求）。
+            # 内部自动处理：注入 embedder 无批量能力 → 逐条 _embed_with_sparse
+            # 降级；注入 embedder 无 sparse 支持 → (dense, None) 纯 dense。
+            for k in range(0, len(texts), self.EMBED_BATCH_CHUNK):
+                pairs.extend(self._embed_batch_with_sparse(texts[k:k + self.EMBED_BATCH_CHUNK]))
+            if not isinstance(pairs, list) or len(pairs) != len(valid):
+                pairs = [(None, None)] * len(valid)  # 顺序对齐失败 → 全部走离线降级
+            for (item, i), (vec, sparse) in zip(valid, pairs):
+                results[i] = self.learn(
+                    item["content"],
+                    source=item.get("source", "task"),
+                    source_session=item.get("source_session"),
+                    event_time=item.get("event_time"),
+                    precomputed_vec=vec,
+                    precomputed_sparse=sparse,
+                )
+        return results

@@ -23,6 +23,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
+    "jieba==0.42.1",
     "numpy>=1.20",
 ]
 
@@ -35,4 +36,4 @@ Repository = "https://github.com/Joevy-1112/memory-kit"
 packages = ["memorykit"]
 
 [tool.setuptools.package-data]
-memorykit = ["py.typed"]
+memorykit = ["py.typed", "data/*.txt"]
