@@ -219,3 +219,34 @@ P0 freshness 接线（validator.py 已就绪）→ P1 local-hash → P1 渲染�
 P1 local-hash 兜底（embedder.py 加 LocalHashEmbedder，~40 行 drop-in）
 → P1 渲染标注（render_memory_lines 纯函数 helper）
 → P1 drain_journal → P1 forgetting 壳
+
+## 2026-08-08 — local-hash 兜底（P1 #4，embedding 挂了 fail-open）
+
+### 状态
+✅ P1 #4 完成（design-notes §4 三步全落地）：206 项测试 = 198 旧 + 8 新，
+仅 1 既有 live llama.cpp 失败项，零回归。
+
+### 设计（契约对齐 scope-recall vector_runtime，实现是 ours）
+- **LocalHashEmbedder**（embedder.py，~50 行纯 stdlib）：token（[\w\u4e00-\u9fff]+
+  切分，权重 1.0）+ 字符 3-gram（权重 0.35）→ sha1(feature) 前 4 字节 % dims
+  定桶 + digest[4] 奇偶定符号 → 累加 → L2 归一化。空文本用占位串 "∅empty∅"
+  （scope-recall 空输入产生空向量，会破坏去重一致性——ours 保持非零）。
+- **MemoryDB.__init__ 加 embed_fallback=True**（默认开）：未注入 embedder 且
+  HTTPEmbedder.is_available() 为 False → 构造期自动切 LocalHashEmbedder，
+  _vector_status="degraded"（stats() 暴露）；False → 保持原行为（HTTP 失败
+  → None）。注入自定义 embedder 完全不受影响（_vector_status 默认 ready）。
+- **定位纪律**：local-hash 是可用性兜底不是真相源——检索降权/排序仍由
+  verify/freshness 管，兜底向量绝不反向覆盖已 verified 记忆。
+
+### 踩坑（本任务）
+1. **全量跑时 DEFAULT_EMBED_URL 被先行模块固化**：test_localhash 顶部设
+   MEMORY_EMBED_URL=:1 只在单独跑时生效；run_tests 按字母序先 import
+   test_learn_batch → embedder 模块缓存 → 我的 env 设置晚了一步 → 全量
+   下 fallback 测试失败（探测到真 8082 服务）。修法：**fallback 测试不依赖
+   env，用 mock.patch("memorykit.db.HTTPEmbedder", _FakeHTTP) 控制
+   is_available()**——测试隔离铁律的又一例：能 mock 就不依赖环境。
+2. 新增 embedder 方法后记得补齐 import（re/hashlib/math 三件套）。
+
+### 下一步
+P1 渲染标注（render_memory_lines 纯函数 helper，一行接入示例）
+→ P1 drain_journal → P1 forgetting 壳

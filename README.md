@@ -396,3 +396,19 @@ correction 闭环仍是我们的护城河。
   续期、search 降权排序、manual fail-closed、旧数据兼容）；全量 198 项
   = 1 既有 live llama.cpp 失败项（环境项，与本次无关）
 - 详细记录见 `project-log.md`（2026-08-08 条目）+ `design-notes/scope-recall-borrowing.md`
+
+### 2026-08-08 迭代追加（local-hash 兜底 / 嵌入 fail-open）
+
+- **LocalHashEmbedder**（`memorykit/embedder.py`）：确定性本地哈希向量
+  （token 权重 1.0 + 字符 3-gram 权重 0.35 → sha1 桶 + 符号 → L2 归一化，
+  256 维）。纯标准库、无网络、无模型，同一文本永远同一向量。
+  **定位：可用性兜底，不是真相源**——语义质量弱但可检索，比"嵌入服务挂了
+  语义通道直接归零"强一个档次；检索降权/排序仍由 verify/freshness 管。
+- **自动降级**：`MemoryDB(embed_fallback=True)`（默认开）——未注入 embedder
+  且 HTTP 嵌入服务不可达时，构造期自动切 LocalHashEmbedder，
+  `vector_status="degraded"`（stats() 可见）；`embed_fallback=False` 保持
+  原行为（HTTP 失败 → None）。注入自定义 embedder 不受影响。
+- **测试**：`tests/test_localhash.py` 8 项（确定性/维度归一化/空文本/弱语义
+  相似度/degraded 降级/关闭开关/stats 暴露/降级下 learn→search 闭环）；
+  全量 206 项 = 1 既有 live llama.cpp 失败项（环境项，与本次无关）
+- 详细记录见 `project-log.md`（2026-08-08 条目）

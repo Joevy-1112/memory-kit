@@ -32,7 +32,7 @@ from datetime import datetime, timedelta
 
 from .search import MemorySearch
 from .lifecycle import MemoryLifecycle
-from .embedder import HTTPEmbedder
+from .embedder import HTTPEmbedder, LocalHashEmbedder
 from .validator import normalize_validator_type
 
 logger = logging.getLogger(__name__)
@@ -268,7 +268,8 @@ CREATE INDEX IF NOT EXISTS idx_correction_log_created ON correction_log(created_
 class MemoryDB(MemorySearch, MemoryLifecycle):
     """SQLite-backed memory store with FTS5 + multi-signal search + lifecycle."""
     def __init__(self, db_path: str = None, state_db_path: str = None,
-                 dirty_log: str = None, embedder=None):
+                 dirty_log: str = None, embedder=None,
+                 embed_fallback: bool = True):
         """Initialize memory DB. Also handles schema migration for vector column.
 
         参数（去 Hermes 耦合，全部可注入）:
@@ -316,6 +317,27 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         else:
             self._embed_with_sparse_impl = None
             self._embed_batch_with_sparse_impl = None
+            # ── local-hash 兜底（契约对齐 scope-recall vector_runtime：embedding
+            # 挂了 fail-open，degraded 状态可检索，绝不静默归零）──
+            # 未注入 embedder 且 HTTP 嵌入服务不可达时，自动降级到本地确定性
+            # 哈希向量（可用性兜底，**不是真相源**——语义质量弱但可检索，
+            # 检索降权/排序仍由 verify/freshness 管，不会反向覆盖已 verified）。
+            self._vector_status = "ready"
+            _http = HTTPEmbedder()
+            if embed_fallback and not _http.is_available():
+                _lh = LocalHashEmbedder()
+                self._embed = _lh.embed
+                self._is_embedding_available = _lh.is_available
+                self._embed_batch = None  # local-hash 无批量路径，learn_batch 逐条降级
+                self._vector_status = "degraded"
+                logger.warning(
+                    "[db] 嵌入服务不可达 (%s) → LocalHashEmbedder 兜底 "
+                    "(vector_status=degraded，语义检索降级但可用)",
+                    _http.url)
+            else:
+                self._embed = _http.embed
+                self._is_embedding_available = _http.is_available
+                self._embed_batch = _http.embed_batch
         self._embedder_injected = embedder is not None
         # Migration: add columns for existing databases — only run ALTER for
         # columns that are actually missing (checked via PRAGMA table_info),
@@ -998,6 +1020,7 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             "by_scope": by_scope,
             "avg_importance": round(avg_imp, 2),
             "expired_count": expired,
+            "vector_status": getattr(self, "_vector_status", "ready"),
         }
 
     # ── Embedding ──────────────────────────────────────────────────────────

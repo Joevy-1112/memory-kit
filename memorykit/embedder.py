@@ -17,7 +17,10 @@
   db = MemoryDB(db_path=..., embedder=MyEmbedder())
 """
 import os
+import re
 import json
+import math
+import hashlib
 import urllib.request
 
 DEFAULT_EMBED_URL = os.environ.get("MEMORY_EMBED_URL", "http://127.0.0.1:8082")
@@ -162,3 +165,53 @@ class HTTPEmbedder(Embedder):
 def embed_text(text: str, url: str = None) -> list:
     """便捷函数：单次嵌入调用，返回向量或 None。"""
     return HTTPEmbedder(url=url).embed(text)
+
+
+class LocalHashEmbedder(Embedder):
+    """确定性本地哈希嵌入器（可用性兜底，**不是真相源**）。
+
+    契约对齐 scope-recall 的 LocalHashEmbedder 语义（embedding 挂了 fail-open，
+    degraded fallback 而不是语义通道归零），实现是 memorykit 自家：
+
+    - 特征：token（按 [\\w\\u4e00-\\u9fff]+ 切分，权重 1.0）+ 字符 3-gram（权重 0.35）
+    - 空文本：占位串 "∅empty∅"（保持非零向量；scope-recall 用 raw 前 64 字符，
+      空输入产生空向量会破坏去重/检索的一致性）
+    - 哈希：sha1(feature) 前 4 字节 % dims 定桶，digest[4] 奇偶定符号，
+      按权重累加后 L2 归一化
+    - 确定性：同一文本永远同一向量；无网络、无模型、无第三方依赖
+    - 语义质量弱（词袋+字符 n-gram 的 hash 桶）但**可检索**——比"直接没有
+      语义通道"强一个档次。向量是放大器不是真相源，local-hash 绝不能反向
+      覆盖已 verified 的记忆（检索降权/排序仍由 verify/freshness 管）
+    """
+
+    def __init__(self, dims: int = 256):
+        self.dims = max(64, int(dims))
+        self._tok_re = re.compile(r"[\w\u4e00-\u9fff]+")
+
+    def _features(self, text: str):
+        text = (text or "").strip().lower()
+        if not text:
+            text = "∅empty∅"
+        feats: dict = {}
+        for tok in self._tok_re.findall(text):
+            feats[tok] = feats.get(tok, 0.0) + 1.0
+        chars = re.sub(r"\s+", "", text)
+        for i in range(len(chars) - 2):
+            g = chars[i:i + 3]
+            feats[g] = feats.get(g, 0.0) + 0.35
+        return feats
+
+    def embed(self, text: str):
+        vec = [0.0] * self.dims
+        for feat, w in self._features(text).items():
+            h = hashlib.sha1(feat.encode("utf-8")).digest()
+            bucket = int.from_bytes(h[:4], "little") % self.dims
+            sign = 1.0 if (h[4] & 1) else -1.0
+            vec[bucket] += sign * w
+        norm = math.sqrt(sum(v * v for v in vec))
+        if norm > 0:
+            vec = [v / norm for v in vec]
+        return vec
+
+    def is_available(self) -> bool:
+        return True  # 本地确定性，永远可用
