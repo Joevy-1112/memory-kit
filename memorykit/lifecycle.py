@@ -898,8 +898,16 @@ class MemoryLifecycle:
     def learn(self, content, source="task", source_session=None, event_time=None,
               precomputed_vec=_NO_PRECOMPUTED_VEC,
               precomputed_sparse=_NO_PRECOMPUTED_SPARSE,
-              auto_verify: bool = True):
+              auto_verify: bool = True,
+              source_session_id=None, source_msg_id=None):
         """自动学习：评分分类+语义去重+原话保留+session关联。
+
+        source_session_id / source_msg_id: state→learn 派生链指针（P0 #1，
+        2026-08-08 修正设计）。learn 时记录"这条提炼来自哪个 session 的哪条
+        原始消息"（state.db messages 表的 session_id + id），供
+        reconstruct(memory_id) 回溯重建。可选——不传 → 存 NULL，行为与旧版
+        完全一致（向后兼容，memory_db.py / overlay bridge 现有调用方不受影响）。
+        合并路径：新指针不在旧值里时追加（逗号连接，语义同 source_session）。
 
         event_time: 事件发生时间（'YYYY-MM-DD[ HH:MM:SS]'），v2 检索元数据。
         仅参与检索时间偏置；不参与 TTL/遗忘状态机/写入去重年龄判断。
@@ -931,6 +939,22 @@ class MemoryLifecycle:
         content = content.strip()
         content = _anchor_time(content)  # 写时锚定：相对时间→绝对日期/当时
         lower = content.lower()
+
+        # ── 派生链指针归一化（P0 #1）：str 化后参与写入/合并（state.db 的
+        # msg id 是 INTEGER，统一按 str 存，reconstruct 时再转回 int 查询）。
+        # 非整数 msg id → 拒写 NULL + warning：一次脏指针经 merge 会永久污染
+        # 指针列（后续 reconstruct 全部 bad_pointer），宁可丢数据不写垃圾 ──
+        if source_session_id is not None:
+            source_session_id = str(source_session_id)
+        if source_msg_id is not None:
+            try:
+                int(str(source_msg_id))
+            except (TypeError, ValueError):
+                logger.warning("[learn] 忽略非整数 source_msg_id=%r（指针必须是 state.db messages.id）",
+                               source_msg_id)
+                source_msg_id = None
+            else:
+                source_msg_id = str(source_msg_id)
 
         # ---- 评分分类 ----
         lessons = {"lesson": ["教训","错误","别","不要","别再","注意","坑","bug","陷阱","崩溃","掉","crash","fix","fixed","failed"]}
@@ -1142,6 +1166,22 @@ class MemoryLifecycle:
                         merged.add(t)
             return sorted(merged)
 
+        def _merge_pointer(old_val, new_val):
+            """合并派生链指针（P0 #1）：新指针不在旧值里时追加（逗号连接）。
+
+            语义与 merged_sessions 对齐：merge 是多次 learn 的聚合，旧指针
+            保留、新指针附加——保证任意一条来源都可回溯。new_val 为空 → 原样
+            返回旧值；旧值为空 → 直接取新值。
+            """
+            if not new_val:
+                return old_val
+            if not old_val:
+                return new_val
+            parts = [p for p in str(old_val).split(",") if p]
+            if str(new_val) not in parts:
+                parts.append(str(new_val))
+            return ",".join(parts)
+
 
         def _fusion_score(sim, overlap):
             """向量+图解信号融合。乘性boost，Hindsight保守路线。"""
@@ -1155,7 +1195,7 @@ class MemoryLifecycle:
             import struct, numpy as np
             qvec_np = np.array(qvec, dtype=np.float32)
             rows = self._conn.execute(
-                "SELECT id, key, content, importance, source_session, vector, vector_bin, entities, tags, event_time FROM memories WHERE vector IS NOT NULL"
+                "SELECT id, key, content, importance, source_session, source_session_id, source_msg_id, vector, vector_bin, entities, tags, event_time FROM memories WHERE vector IS NOT NULL"
             ).fetchall()
             
             # Fast path: batch cosine over binary blobs
@@ -1211,6 +1251,12 @@ class MemoryLifecycle:
                 merged_sessions = old_sessions
                 if source_session and source_session not in old_sessions:
                     merged_sessions = (old_sessions + "," + source_session).strip(",")
+
+                # ── 派生链指针合并（P0 #1）：旧指针保留 + 新指针追加 ──
+                merged_src_session_id = _merge_pointer(
+                    best.get("source_session_id"), source_session_id)
+                merged_src_msg_id = _merge_pointer(
+                    best.get("source_msg_id"), source_msg_id)
 
                 # ── 验证管线: 合并后仍标记 pending，等待交叉检查 ──
                 old_prov = best.get("provenance") or "{}"
@@ -1268,10 +1314,11 @@ class MemoryLifecycle:
                             content=?, importance=?, accessed_at=datetime('now'),
                             updated_at=datetime('now'), source_session=?,
                             tags=?, category=?, entities=?, decay_profile=?, provenance=?,
-                            event_time=?
+                            event_time=?, source_session_id=?, source_msg_id=?
                         WHERE id=?
                     """, (merged_content, new_imp, merged_sessions, ",".join(merged_tags),
                           category, entities_json, None, new_prov, merged_event_time,
+                          merged_src_session_id, merged_src_msg_id,
                           best["id"]))
                 if merged_entities:
                     # 实体关联表同步（与 set() 的 _update_entity_links 对齐）
@@ -1292,7 +1339,7 @@ class MemoryLifecycle:
         # 兜底: 嵌入离线 + 实体去重
         if not qvec and new_entities and len(new_entities) >= 3:
             rows = self._conn.execute(
-                "SELECT id, key, content, importance, source_session, entities, tags, event_time FROM memories WHERE entities IS NOT NULL AND entities != 'null'"
+                "SELECT id, key, content, importance, source_session, source_session_id, source_msg_id, entities, tags, event_time FROM memories WHERE entities IS NOT NULL AND entities != 'null'"
             ).fetchall()
             matches = []
             for r in rows:
@@ -1310,6 +1357,12 @@ class MemoryLifecycle:
                 merged_sessions = old_sessions
                 if source_session and source_session not in old_sessions:
                     merged_sessions = (old_sessions + "," + source_session).strip(",")
+
+                # ── 派生链指针合并（P0 #1，同向量合并路径）──
+                merged_src_session_id = _merge_pointer(
+                    best.get("source_session_id"), source_session_id)
+                merged_src_msg_id = _merge_pointer(
+                    best.get("source_msg_id"), source_msg_id)
 
                 # ── 验证管线: 实体去重合并后也标记 pending ──
                 old_prov = best.get("provenance") or "{}"
@@ -1352,10 +1405,11 @@ class MemoryLifecycle:
                             content=?, importance=?, accessed_at=datetime('now'),
                             updated_at=datetime('now'), source_session=?,
                             tags=?, category=?, entities=?, decay_profile=?, provenance=?,
-                            event_time=?
+                            event_time=?, source_session_id=?, source_msg_id=?
                         WHERE id=?
                     """, (merged_content, new_imp, merged_sessions, ",".join(merged_tags),
                           category, entities_json, None, new_prov, merged_event_time,
+                          merged_src_session_id, merged_src_msg_id,
                           best["id"]))
                 if merged_entities:
                     try:
@@ -1386,7 +1440,8 @@ class MemoryLifecycle:
                  # 单条路径保持原行为 embed=True（_embed 失败时 set 内兜底重试一次）
                  embed=(precomputed_vec is _NO_PRECOMPUTED_VEC),
                  source_session=source_session,
-                 vector=qvec, sparse=qsparse, event_time=event_time)
+                 vector=qvec, sparse=qsparse, event_time=event_time,
+                 source_session_id=source_session_id, source_msg_id=source_msg_id)
         # set() 不传 provenance，这里补写（_tx 保证事务闭合）
         with self._tx():
             self._conn.execute("UPDATE memories SET provenance=? WHERE key=?", (init_prov, key))
@@ -1406,8 +1461,11 @@ class MemoryLifecycle:
         """批量学习：一次批量嵌入 + 逐条复用 learn 逻辑（零二次嵌入）。
 
         items 每项: {"content": str, "source": str, "source_session": str,
-                     "event_time": str}（source/event_time/source_session 可省略，
-        缺省与 learn() 相同）。返回与 items 一一对应的 learn() 结果列表
+                     "event_time": str, "source_session_id": str,
+                     "source_msg_id": str}（source/event_time/source_session/
+        source_session_id/source_msg_id 均可省略，缺省与 learn() 相同——
+        前两者向后兼容，后两者是 state→learn 派生链指针 P0 #1，逐条透传
+        learn() 写入）。返回与 items 一一对应的 learn() 结果列表
         （过短条目返回 {"error": "content too short"}）。
 
         实现:
@@ -1454,5 +1512,112 @@ class MemoryLifecycle:
                     event_time=item.get("event_time"),
                     precomputed_vec=vec,
                     precomputed_sparse=sparse,
+                    source_session_id=item.get("source_session_id"),
+                    source_msg_id=item.get("source_msg_id"),
                 )
         return results
+
+    # ══════════════════════════════════════════════════════════════
+    # state→learn 派生链：回溯重建（P0 #1，2026-08-08 修正设计）
+    # ══════════════════════════════════════════════════════════════
+    #
+    # 设计（design-notes/scope-recall-borrowing.md §2026-08-08 修正）：
+    #   state.db（原始消息，Hermes 原生会话存档，永不删）── learn 记指针 ──→
+    #   memory.db（提炼）。指针 = source_session_id + source_msg_id 两列。
+    # 本方法只建"可回溯"能力：给定 memory_id，沿指针回 state.db 找回提炼
+    # 来源的原始消息。**不承诺自动重建**（重放/蒸馏是后续管线的事）。
+
+    def reconstruct(self, memory_id: int) -> dict:
+        """state→learn 派生链回溯：返回该 memory 提炼来源的原始消息。
+
+        从 memory 行的 source_session_id/source_msg_id 指针出发，在
+        state.db（Hermes 会话存档，只读引用）messages 表定位原始消息。
+        指针支持逗号连接的**多来源**形态（merge 路径旧指针保留 + 新指针
+        追加）：按 session/msg id 列表做并集查询，返回全部能定位到的源。
+        找不到 source（旧数据/无指针/state.db 缺失/消息已被清）→ 明确返回
+        失败原因，绝不抛出（纯读能力，任何异常内部消化）。
+
+        返回:
+          {"found": True, "memory_id": int, "memory_key": str,
+           "source": {session_id, msg_id, role, content, timestamp},   # 第一个定位到的源
+           "sources": [ {...}, ... ]}                                  # 全部定位到的源（≥1 条）
+          {"found": False, "memory_id": int, "memory_key": str|None,
+           "reason": str}
+            reason ∈ {"memory_not_found", "no_pointer", "no_state_db",
+                      "bad_pointer", "msg_not_found", "state_db_unreadable"}
+            - no_pointer: 旧数据 / learn 未带指针（两列均为 NULL）→ "无来源"
+            - no_state_db: state_db_path 未配置或文件不存在
+            - bad_pointer: 指针格式无法解析（非空但含非整数 msg id）
+            - msg_not_found: 指针指向的消息均不在 state.db（归档/清理后）
+            - state_db_unreadable: state.db 存在但不是可读的 sqlite 文件
+        """
+        base: dict = {"memory_id": memory_id}  # 显式 dict 注解：结果形状多变（str/int/dict 混用）
+        try:
+            row = self._conn.execute(
+                "SELECT id, key, source_session_id, source_msg_id "
+                "FROM memories WHERE id=?",
+                (memory_id,),
+            ).fetchone()
+        except Exception:
+            row = None
+        if row is None:
+            base["memory_key"] = None
+            base["found"] = False
+            base["reason"] = "memory_not_found"
+            return base
+        base["memory_key"] = row["key"]
+        sid = row["source_session_id"]
+        mid = row["source_msg_id"]
+        if not sid or not mid:
+            base["found"] = False
+            base["reason"] = "no_pointer"
+            return base
+        import os as _os
+        import sqlite3 as _sql
+        state_path = getattr(self, "state_db_path", None)
+        if not state_path or not _os.path.exists(state_path):
+            base["found"] = False
+            base["reason"] = "no_state_db"
+            return base
+        # 多来源指针：逗号分隔的列表（merge 累积）。任一项非整数 → bad_pointer。
+        sids = [p for p in str(sid).split(",") if p]
+        try:
+            mids = [int(p) for p in str(mid).split(",") if p]
+        except (TypeError, ValueError):
+            base["found"] = False
+            base["reason"] = "bad_pointer"
+            return base
+        if not sids or not mids:
+            base["found"] = False
+            base["reason"] = "no_pointer"
+            return base
+        try:
+            conn = _sql.connect(state_path)
+            conn.row_factory = _sql.Row
+            try:
+                ph = ",".join("?" * len(sids))
+                qh = ",".join("?" * len(mids))
+                rows = conn.execute(
+                    f"SELECT id, session_id, role, content, timestamp FROM messages "
+                    f"WHERE session_id IN ({ph}) AND id IN ({qh})",
+                    (*sids, *mids),
+                ).fetchall()
+            finally:
+                conn.close()
+        except Exception:
+            base["found"] = False
+            base["reason"] = "state_db_unreadable"
+            return base
+        if not rows:
+            base["found"] = False
+            base["reason"] = "msg_not_found"
+            return base
+        sources = [
+            {"session_id": m["session_id"], "msg_id": m["id"],
+             "role": m["role"], "content": m["content"], "timestamp": m["timestamp"]}
+            for m in rows
+        ]
+        base["found"] = True
+        base["source"] = sources[0]
+        base["sources"] = sources
+        return base

@@ -319,3 +319,55 @@ AGPL-3.0-only（SPDX）。官方全文：
 
 要点：可自由使用/修改/分发；通过网络提供服务时须向用户提供对应源代码
 （Affero 条款）；衍生作品须以相同许可证发布。本库按"原样"提供，无担保。
+
+---
+
+## 2026-08-08 追加 — scope-recall 对比结论
+
+对第三方记忆插件 scope-recall（28838行，笔电已装）的解剖对比，修正我们的自我认知：
+
+### 事实
+- scope-recall 工程化程度高我们一个量级（journal=truth 事件溯源 / LanceDB / validator 活验证 / freshness 状态机 / forgetting 治理 / local-hash 兜底 / RRF 排序）
+- 我们这两天才"想到"的设计（local-hash 兜底、journal 常驻提炼、observational no-op、validator），它早已工程落地
+- **我们确实重复造了轮子，且造得不如它完整**
+
+### 我们的独特价值（它缺的）
+- **correction 验证闭环**（错信息直进 truth 是它的死穴）
+- 记忆衰减 / 可过期
+- 实体合并（jieba 用户词典）
+- overlay 遮蔽 + state.db 原文永不删 + 指针展开
+
+### 我们可能想错的
+- 把真 bge-m3 当卖点：vector 是放大器不是真相源，没有 correction 护 truth，语义越准越把错信息送上门
+
+### 发现的两个工程漏洞（详见 project-log）
+1. state 没 learn（提炼损失不可逆，无 journal 式重建链）
+2. event_time 只做检索侧，渲染不带时间标注（时态污染防护缺口）
+
+### 行动方向（Joe 定："同意借鉴，照搬也行"）
+解剖 scope-recall，把最强三样并进架构：
+① journal 重建链（state→learn 派生）② validator 活验证 ③ 常驻提炼
+correction 闭环仍是我们的护城河。
+
+---
+
+## 2026-08-08 追加2 — 决策：继续自研，scope-recall 当参考（Joe 定）
+
+### 背景
+发现 Hermes 官方自带记忆插件 scope-recall（1.7.1，GitHub 410979729/scope-recall-hermes，MIT）——我们断断续续复刻了它的核心（prefetch/capture/digest/RRF/freshness/on_pre_compress）。
+
+### 决策（2026-08-08）
+**B方案：继续自研 memorykit，scope-recall 当参考加速补齐。**
+- 理由：我们的 correction 闭环 / 遮蔽 / 指针展开是 scope-recall 没有的独有增量，值得继续
+- 独立复刻=设计验证（两套互不知情的实现收敛到同一架构，确认是记忆系统标准解）
+
+### 补齐清单（借 scope-recall 实现加速）
+1. **state → learn 派生链**（journal 重建思想）：learn 记录 source 指针，可回溯重建——修"提炼损失不可逆"
+2. **validator 活验证**：file_exists / command / http——记忆过期自动活验证（它 freshness.py 有完整实现可参考）
+3. **渲染侧时间标注**：记忆进上下文带时间边界（如【2026-03-12 记录】）——修时态污染缺口
+4. **local-hash 兜底**：embedding 挂了 fail-open（参考它 vector_runtime）
+5. **常驻提炼**：journal digest 持续节奏（不只是压缩时触发）
+6. **遗忘治理**：soft-archive + dry-run + 审计（参考它 forgetting.py）
+
+### 不动（我们的护城河）
+- correction 闭环 / 遮蔽 overlay / 指针展开 / 实体合并（jieba）

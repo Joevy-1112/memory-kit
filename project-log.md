@@ -56,3 +56,125 @@
 ## 演进源流
 
 memory-kit 由 Hermes 的 scripts/memory_db.py 概念提炼而来（开源时去除 hermes 耦合，verify_recent/search_state_* 等保留为可降级实验功能）。Hermes 自用侧仍跑 memory_db.py，库侧演进不自动同步——同步需显式操作。
+
+---
+
+## 2026-08-08 — scope-recall 对比发现的工程漏洞（2个）
+
+### 背景
+笔电解剖第三方记忆插件 scope-recall（journal=truth 事件溯源架构），服务器对比 memorykit 时发现两个工程漏洞。
+
+### 漏洞1：state 没 learn（工程实现失误遗留）
+- 事实: state.db（原文存档）与 memory.db（提炼）独立写入，learn 不从 state 派生
+- 后果: 提炼损失不可逆（learn 抽坏只能 correction 修正，不能从 state 重放重建）——比 scope-recall 的"journal 可重建"弱
+- 目标: state → learn 派生链（或至少 learn 记录 source 指针可回溯重建）
+
+### 漏洞2：event_time 只做了检索侧，没做渲染侧（时态污染防护缺口）
+- 事实: event_time 参与检索排序（TIME_WINDOW_BIAS_IN/OUT 偏置），但记忆渲染进上下文时**不带时间标注**
+- 后果: 旧记忆被召回后，模型看不出新旧，可能当当前事实用（时态污染）——freshness/置信度是另一回事，防时态污染需要"渲染侧时间边界"
+- 目标: 渲染时记忆带时间标注（如【2026-03-12 记录】），让模型能判断信息新旧
+
+### 关联
+- scope-recall 值得抄: local-hash 兜底 / journal digest 常驻批处理 / observational no-op / validator 活验证（file_exists/command/http）
+- scope-recall 缺的: correction 闭环 / 记忆衰减 / 实体合并（jieba）——我们已有
+- 我们可能想错的: 把真 bge-m3 当卖点（vector 是放大器不是真相源）
+
+## 2026-08-08 — scope-recall 解剖 + 借鉴方案（t_ed9ca8f1）
+
+### 状态
+✅ 解剖完成：6 项补齐清单全部给出"它怎么做 → 我们缺什么 → 怎么并进"；validator 活验证原型交付（20 测试全绿）；未动 scope-recall（只读）
+
+### 产出
+- **design-notes/scope-recall-borrowing.md**：主交付物。P0×2（journal 派生链 / validator 活验证）+ P1×4（渲染时间标注 / local-hash 兜底 / 常驻提炼 / 遗忘治理壳），每项标优先级、源码行号、最小侵入落点；明确"不抄什么"6 条（无 correction / 无衰减 / 无实体合并 / LLM 模板化提炼 / 多租户复杂度 / RRF）
+- **memorykit/validator.py**：活验证原型（file_exists/command/http + 别名归一化 + scope-recall 兼容 spec 形态 + run_checks 批量降级），纯标准库零依赖
+- **tests/test_validator.py**：20 项测试（含本机 http.server 真 200/404/拒连），`python run_tests.py validator` 全绿
+
+### 关键判断
+- scope-recall 的 freshness.py 只是**状态机+惩罚+报表**，三种 validator 的**执行器**实际不在插件里（spec 存表、执行交给 agent 工具）——我们把执行器落成库内原语，正好补上，且与 _lightweight_verify（被动推断）互补
+- journal=truth 的骨架（journal_entries + memory_journal_sources 指针表 + watermark + 收据表）可直接按单用户裁剪进库，反而解耦我们对 Hermes state.db 的依赖
+- 借鉴点全部走现有注入/乘性机制（embedder 注入、VERIFY_WEIGHTS 乘法），不引入新架构
+
+### 测试
+- 新增 20 项全绿；全量 161 项在项目 venv 下 1 失败——`test_learn_batch.test_real_server_batch_matches_single_embed`（live llama.cpp 8082 对同文本批量返回微差向量，cos=1 断言挂；既有环境项，与本任务无关；系统 python3 跑另有 13 项 jieba 缺失失败，也是既有项）
+
+### 下一步（已排优先级，见设计文档第 9 节）
+1. P0 journal 表 + 双写 + replay_from_journal（修漏洞 1）
+2. P0 fact_freshness 侧表 + verify 活验证接线 + 检索惩罚（validator.py 已就绪）
+3. P1 local-hash 兜底（~40 行 drop-in）
+4. P1 渲染时间标注 helper
+5. P1 drain_journal 常驻提炼（依赖 1）
+6. P1 forgetting 治理壳（dry-run/审计，包在 age() 外）
+
+## 2026-08-08 — validator 原型修 3 个实证问题（t_986ff91b）
+
+### 状态
+✅ M1/M2/H1 全部修复 + 7 项回归测试；validator 27 项全绿，可进主线；全量 168 项仍 1 failure（既有 live 服务确定性项，与本次无关）
+
+### 产出（memorykit/validator.py）
+- **M1 不抛契约**：新增 `_coerce_timeout()`（ValueError/TypeError/nan/inf → 默认值；0/负数钳制到 MIN_TIMEOUT=0.1），_check_command/_check_http 的 timeout 解析不再裸奔于 try 外——`validate({"timeout":"abc"})` 与 run_checks 批量都不再抛
+- **M2 shell 严格判型**：新增 `_as_bool()`，只认真布尔 True/False + 白名单字符串 {"true","1","yes"}；字符串 "false"/"0"/""/数字一律 False（fail-closed）——`shell:"false"` 不再展开 $HOME
+- **H1 scheme 白名单 + 信任模型**：_check_http 入口校验 scheme ∈ {http,https}，file:// 等入口即拒（消除本地文件存在性探针/内网探测面收窄）；新增 `_redact_url()` 脱敏 detail 回显 URL 的 userinfo；模块 docstring 写明"validator_spec 是可信 agent 配置，绝不可从不可信内容自动派生"
+- **tests/test_validator.py**：+7 项回归（畸形 timeout 不抛 ×2、字符串 false 不启用 shell、白名单字符串启用、非 http(s) scheme 拒绝、userinfo 不泄漏、_redact_url 单元）
+
+### 测试
+- `python run_tests.py validator`：27 项全绿（原 20 + 7）
+- `python run_tests.py`（.venv py3.11）：168 项 = 1 failure + 2 skipped，唯一失败仍是 test_learn_batch live llama.cpp 8082 确定性项（既有环境项）
+
+### 下一步（不变）
+P0 journal 表（先定 D2 三问：保留策略/role-turn 映射/存全文还是指针）→ P0 freshness 接线 → P1 local-hash → P1 渲染标注 → P1 drain_journal → P1 forgetting 壳
+
+## 2026-08-08 — state→learn 派生链（P0 #1，指针方案，t_798e9d98）
+
+### 状态
+✅ 修"state 没 learn"工程漏洞（提炼损失不可逆）：memory 行现在带来源指针，可回溯到原始消息。183 项测试 = 168 旧 + 15 新，仅 1 既有 live 服务失败项，零回归。
+
+### 设计（Joe 2026-08-08 拍板，替代 scope-recall 的 journal 方案）
+```
+state.db（原始消息，已有）── learn 记指针 ──→ memory.db（提炼）
+   ↑ source_session_id + source_msg_id 回溯重建
+```
+- **不建 journal 表**：scope-recall 建 journal 是因为它没有原生会话存档；我们有 Hermes state.db（永不删），不该重复存原始消息。state.db 就是原始消息存档，memory 只加指针。
+- 比 scope-recall 省一份存储（它 journal+memory 双存，我们原文一份+提炼一份+指针）。
+
+### 产出
+- **schema**：`memories` 表加 `source_session_id TEXT` + `source_msg_id TEXT`（SCHEMA_SQL + `_migrate_columns` 双路径，旧库自动 ALTER 补齐；旧行两列 NULL，不破坏）
+- **learn()**：可选 `source_session_id`/`source_msg_id` 参数，插入路径透传 set() 写入；两处 merge 分支（向量去重 + 实体兜底）用 `_merge_pointer` 旧指针保留 + 新指针追加（逗号连接，语义对齐 source_session）。**不传不炸**，向后兼容 memory_db.py / overlay bridge
+- **set()**：同样支持可选指针（learn 插入路径的底层；直接调用传 int msg id 也归一化为 str）
+- **learn_batch()**：items 每项可带 `source_session_id`/`source_msg_id`，逐条透传
+- **reconstruct(memory_id)**（lifecycle.py）：沿指针回 state.db messages 表定位原始消息，返回 `{found, source:{session_id, msg_id, role, content, timestamp}}`；明确失败分支 memory_not_found / no_pointer（旧数据/无指针="无来源"）/ no_state_db / bad_pointer / msg_not_found，绝不抛。**只建可回溯，不承诺自动重建**（重放/蒸馏是后续管线的事）
+
+### 测试
+- 新增 `tests/test_pointer_chain.py` 15 项：learn 带指针→可回溯；不带指针→NULL 不炸；learn_batch 逐条指针；merge 指针合并（含不带指针 merge 保留旧值）；旧库迁移；reconstruct 全失败分支（含 session 不匹配、畸形指针、state.db 不可读）
+- `python run_tests.py`（.venv py3.11）：183 项 = 1 failure + 2 skipped，唯一失败仍是 test_learn_batch live llama.cpp 8082 确定性项（既有环境项，与本任务无关——改动不碰嵌入路径）
+
+### 下一步（不变）
+P0 freshness 接线（validator.py 已就绪）→ P1 local-hash → P1 渲染标注 → P1 drain_journal（依赖本任务的地基，可复用 learn 指针链）→ P1 forgetting 壳
+
+### 验证补充（同任务，ad-hoc 复核发现并修复）
+- **多来源回溯**：merge 后指针是逗号连接列表，`reconstruct()` 按 session/msg id 做并集查询返回 `sources` 列表（`source` 为第一条），部分指针悬空仍能回溯到存活源——"可回溯"对合并记忆同样成立
+- **非整数指针拒写**：`learn()`/`set()` 对非整数 `source_msg_id` 拒写 NULL + warning（防一次脏指针经 merge 永久污染指针列）；`reconstruct()` 保留 `bad_pointer` 分支兜手工 SQL/历史脏数据
+- 全量 185 项 = 168 旧 + 17 新，仍仅 1 既有 live llama.cpp 失败项
+
+## 2026-08-08 — 修指针链 P1：set() ON CONFLICT 清空指针（t_7d7026b1）
+
+### 状态
+✅ P1 已修（review t_5be03922 终审合并前清单）：187 项测试 = 185 旧 + 2 新增回归，仍仅 1 既有 live llama.cpp 失败项，零回归。
+
+### 修复（memorykit/db.py，一行级最小改动）
+- set() 的 `ON CONFLICT(key) DO UPDATE` 中 `source_session_id`/`source_msg_id` 由 `excluded.<col>` 改为
+  `COALESCE(excluded.<col>, memories.<col>)`——同 key 普通重写不再把溯源链清成 NULL；
+  显式带新指针的重写仍用新值（对齐 event_time 既有 COALESCE 语义）。
+  修复前：`set('env/gpu', 新内容)` 会把旧指针抹掉 → reconstruct 变 no_pointer（"提炼损失不可逆"在 set 路径上复现）。
+
+### 配套（review 合并前清单）
+- **tests/test_pointer_chain.py +2 回归**：
+  - `test_set_rewrite_preserves_existing_pointers`：带指针 set → 不带指针重写同 key → 指针保留不丢，reconstruct 仍可回溯（P1 精确复现场景）
+  - `test_set_rewrite_with_new_pointer_updates_it`：重写显式带新指针 → 新指针生效（COALESCE 不误伤更新路径）
+- **lifecycle.py reconstruct docstring（P3-1）**：reason 枚举补 `state_db_unreadable`（代码会返回、测试已断言，纯文档漂移修复）
+
+### 测试
+- `python -m unittest tests.test_pointer_chain -v`：19 项全绿（17 + 2）
+- `python run_tests.py`（.venv py3.11）：187 项 = 1 failure + 2 skipped，唯一失败仍是 test_learn_batch live llama.cpp 8082 确定性项（既有环境项，与本次改动无关——未碰嵌入路径）
+
+### 下一步（不变）
+P0 freshness 接线（validator.py 已就绪）→ P1 local-hash → P1 渲染标注 → P1 drain_journal → P1 forgetting 壳

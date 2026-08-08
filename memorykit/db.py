@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS memories (
     agent_id    TEXT DEFAULT 'hermes',
     origin      TEXT DEFAULT 'unknown',  -- 来源标注: laptop/server/unknown（只写一次，merge 不覆盖）
     source_session TEXT DEFAULT NULL,
+    source_session_id TEXT DEFAULT NULL,  -- state→learn 派生链指针（P0 #1，2026-08-08）：提炼来源 session id，回溯重建用（source_session 旧字符串指针保留不动）
+    source_msg_id TEXT DEFAULT NULL,      -- state→learn 派生链指针：提炼来源消息 id（state.db messages.id），NULL=无指针（旧数据/未带）
     decay_profile TEXT DEFAULT 'medium',
     stale_since  TEXT DEFAULT NULL,     -- 环2: 进入 stale 状态的时间戳（状态机 active→stale→archived→物理删）
     provenance  TEXT DEFAULT NULL,
@@ -326,6 +328,8 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             "ALTER TABLE memories ADD COLUMN origin TEXT DEFAULT 'unknown'",
             "ALTER TABLE memories ADD COLUMN event_time TEXT DEFAULT NULL",
             "ALTER TABLE memories ADD COLUMN source_session TEXT DEFAULT NULL",
+            "ALTER TABLE memories ADD COLUMN source_session_id TEXT DEFAULT NULL",
+            "ALTER TABLE memories ADD COLUMN source_msg_id TEXT DEFAULT NULL",
             "ALTER TABLE memories ADD COLUMN decay_profile TEXT DEFAULT 'medium'",
             "ALTER TABLE memories ADD COLUMN stale_since TEXT DEFAULT NULL",
             "ALTER TABLE memories ADD COLUMN provenance TEXT DEFAULT NULL",
@@ -500,10 +504,15 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             agent_id: str = "hermes", source_session: str = None,
             decay_profile: str = None, provenance: str = None,
             vector: list = None, water: int = 2,
-            event_time: str = None, sparse: dict = None) -> int:
+            event_time: str = None, sparse: dict = None,
+            source_session_id: str = None, source_msg_id: str = None) -> int:
         """Insert or replace a memory entry. Optionally computes embedding. Returns row id.
         
         If `vector` is provided (pre-computed), skip embedding call entirely.
+
+        source_session_id / source_msg_id: state→learn 派生链指针（P0 #1）——
+        learn() 提炼来源（state.db 的 session id + messages.id）透传写入；
+        默认 None → 存 NULL，完全向后兼容（旧调用方不传不炸）。
 
         event_time: 事件发生时间（'YYYY-MM-DD[ HH:MM:SS]'），v2 检索元数据——
         仅用于搜索时间偏置（recency/时间窗口），不参与 TTL/遗忘状态机/去重年龄判断。
@@ -513,6 +522,19 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         sparse: 稀疏词法权重 {token_id_str: weight}（bge-m3 sparse_weights），
         以 JSON 存 sparse 列。None/空 → 存 NULL（纯 dense 降级）。同 key 重写时
         以本次传入为准覆盖（内容更新 → 词法信号同步更新）。"""
+        # 派生链指针归一化：state.db 的 msg id 是 INTEGER，统一按 str 存；
+        # 非整数（调用方传错/脏数据）→ 拒写 NULL + 记 warning（防 merge 污染指针列）
+        if source_session_id is not None:
+            source_session_id = str(source_session_id)
+        if source_msg_id is not None:
+            try:
+                int(str(source_msg_id))
+            except (TypeError, ValueError):
+                logger.warning("[set] 忽略非整数 source_msg_id=%r（指针必须是 state.db messages.id）",
+                               source_msg_id)
+                source_msg_id = None
+            else:
+                source_msg_id = str(source_msg_id)
         # Auto-detect decay_profile from category if not specified
         if decay_profile is None:
             if category in ("lesson", "protocol"):
@@ -562,8 +584,9 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             INSERT INTO memories(key, content, category, tags, scope, importance, ttl,
                 created_at, updated_at, accessed_at, event_time,
                 vector, sparse, vector_bin, agent_id, source_session, decay_profile,
-                provenance, entities, water, confidence, verification_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                provenance, entities, water, confidence, verification_status,
+                source_session_id, source_msg_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
                 content=excluded.content,
                 category=excluded.category,
@@ -577,6 +600,8 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                 entities=excluded.entities,
                 agent_id=excluded.agent_id,
                 source_session=excluded.source_session,
+                source_session_id=COALESCE(excluded.source_session_id, memories.source_session_id),
+                source_msg_id=COALESCE(excluded.source_msg_id, memories.source_msg_id),
                 decay_profile=excluded.decay_profile,
                 provenance=excluded.provenance,
                 water=excluded.water,
@@ -585,7 +610,8 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                 accessed_at=excluded.accessed_at
         """, (key, content, category, tags, scope, importance, ttl, now, now, now, event_time,
               vec_json, sparse_json, vec_bin, agent_id, source_session, decay_profile,
-              provenance_final, entities_json, water, confidence, "pending"))
+              provenance_final, entities_json, water, confidence, "pending",
+              source_session_id, source_msg_id))
         self._conn.commit()
         row = self._conn.execute("SELECT id FROM memories WHERE key=?", (key,)).fetchone()
         rid = row["id"] if row else -1
