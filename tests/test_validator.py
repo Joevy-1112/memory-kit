@@ -6,7 +6,7 @@
   或：python -m unittest tests.test_validator -v
 
 覆盖：
-- normalize_validator_kind 别名归一化 / 未知值 fail-closed 到 manual
+- normalize_validator_type 别名归一化 / 未知值 fail-closed 到 manual
 - file_exists：真实存在 / 缺失 / 裸字符串路径形态
 - command：exit=0 / exit!=0 / 超时 / shlex 拆分（无 shell）/ 畸形 timeout 不抛（M1 回归）
 - shell 旗标：字符串 "false"/"0"/"" 不启用 shell，白名单字符串启用（M2 回归）
@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from memorykit.validator import (  # noqa: E402
     _redact_url,  # 私有 helper，仅回归测试直接调用
-    normalize_validator_kind,
+    normalize_validator_type,
     run_checks,
     validate,
 )
@@ -61,19 +61,19 @@ def _free_port() -> int:
 
 class ValidatorKindNormalizationTest(unittest.TestCase):
     def test_alias_normalization(self):
-        self.assertEqual(normalize_validator_kind("path"), "file_exists")
-        self.assertEqual(normalize_validator_kind("file"), "file_exists")
-        self.assertEqual(normalize_validator_kind("shell"), "command")
-        self.assertEqual(normalize_validator_kind("cmd"), "command")
-        self.assertEqual(normalize_validator_kind("https"), "http")
-        self.assertEqual(normalize_validator_kind("url"), "http")
-        self.assertEqual(normalize_validator_kind("manual_live_check"), "manual")
-        self.assertEqual(normalize_validator_kind(""), "none")
-        self.assertEqual(normalize_validator_kind("permanent"), "none")
+        self.assertEqual(normalize_validator_type("path"), "file_exists")
+        self.assertEqual(normalize_validator_type("file"), "file_exists")
+        self.assertEqual(normalize_validator_type("shell"), "command")
+        self.assertEqual(normalize_validator_type("cmd"), "command")
+        self.assertEqual(normalize_validator_type("https"), "http")
+        self.assertEqual(normalize_validator_type("url"), "http")
+        self.assertEqual(normalize_validator_type("manual_live_check"), "manual")
+        self.assertEqual(normalize_validator_type(""), "none")
+        self.assertEqual(normalize_validator_type("permanent"), "none")
 
     def test_unknown_kind_fails_closed_to_manual(self):
         # 未知非空取值 → manual（宁可人工复核，不当永恒偏好）
-        self.assertEqual(normalize_validator_kind("quantum-check"), "manual")
+        self.assertEqual(normalize_validator_type("quantum-check"), "manual")
 
 
 class FileExistsValidatorTest(unittest.TestCase):

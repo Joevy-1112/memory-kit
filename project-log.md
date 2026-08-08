@@ -178,3 +178,44 @@ P0 freshness 接线（validator.py 已就绪）→ P1 local-hash → P1 渲染�
 
 ### 下一步（不变）
 P0 freshness 接线（validator.py 已就绪）→ P1 local-hash → P1 渲染标注 → P1 drain_journal → P1 forgetting 壳
+
+## 2026-08-08 — freshness 活验证接线（P0 #2，validator.py 已就绪 → 落库）
+
+### 状态
+✅ P0 #2 完成（design-notes §2 落库三步全落地）：198 项测试 = 187 旧 + 11 新，
+仅 1 既有 live llama.cpp 失败项（环境项，未碰嵌入路径），零回归。
+
+### 设计（沿用"契约对齐 scope-recall，实现是 ours"）
+- **零新表**：freshness 状态存 provenance.fresh（memorykit 自家形态，
+  不照搬 fact_freshness 侧表——单用户库一条 memory 一个 fresh 配置，
+  侧表的"一 memory 多 fact"多租户复杂度我们用不上）
+- **写入**：learn()/set() 可选 `validator={"type","spec","ttl_days"}` →
+  provenance.fresh（type 经 normalize_validator_type 归一化，未知值
+  fail-closed 到 manual；ttl_days → valid_until = now + ttl）
+- **verify()**：_check_freshness 独立于 source 交叉验证——先过期判定
+  （valid_until 硬规则 → expired/0.28），再活验证（有 spec 且类型可自动执行
+  → validator.validate()：ok → current/1.0 + 续期，fail → stale/0.35）；
+  返回 dict 带 fresh 字段
+- **search_multi**：_freshness_penalty 乘性并入 rrf_score（VERIFY_WEIGHTS ×
+  time_weight × window_bias × freshness_penalty），结果暴露 freshness_penalty；
+  无 fresh 配置 = 1.0 零开销
+- **validator.py 命名统一（借用纪律待办）**：VALIDATOR_KINDS →
+  VALIDATOR_TYPES / _VALIDATOR_TYPE_ALIASES / normalize_validator_type；
+  validate() 认 `type` 键优先（kind/validator_kind 兼容）
+
+### 踩坑（本任务）
+1. **validate() 只认 `kind` 键，fresh 里存的是 `type`** → 活验证静默跳过
+   （spec 有 path 但 kind 解析为空 → none → 不检查）。修法：validate()
+   提取键优先级 type → kind → validator_kind（自家命名优先，存量兼容）
+2. **learn() 创建路径用 init_prov 整体覆盖 provenance** → set 里组装的
+   fresh 被抹掉。修法：改为 set 后读回 provenance 补 `v=pending` 键，
+   不整体覆盖
+3. **learn 语义去重会合并相似内容** → 测试里两条"端口 8082/8083 配置"
+   被 merge 成同 key，断言失效。修法：search 测试改用 set() 建不同 key
+4. **db.py patch import 时丢了 logger 定义**（NameError）——改 import 块
+   时注意 logger = logging.getLogger(__name__) 是否还在
+
+### 下一步
+P1 local-hash 兜底（embedder.py 加 LocalHashEmbedder，~40 行 drop-in）
+→ P1 渲染标注（render_memory_lines 纯函数 helper）
+→ P1 drain_journal → P1 forgetting 壳

@@ -581,6 +581,60 @@ class MemoryLifecycle:
             result["evidence"] = {k: v[1] for k, v in plans.items()}
         return result
 
+    def _check_freshness(self, prov: dict) -> dict:
+        """检查 provenance.fresh：过期判定 + 活验证（契约对齐 scope-recall
+        freshness 状态机语义，实现为 memorykit 自家 provenance 内嵌形态）。
+
+        1) valid_until 过期 → status=expired / penalty=0.28（时间边界硬规则）
+        2) 有 validator spec 且类型可自动执行（file_exists/command/http）
+           → validator.validate() 活验证：ok → current(1.0) / fail → stale(0.35)
+        3) manual/none/无 spec → 只做过期判定，不自动验证
+        4) 无 fresh → 原样返回零影响（旧数据兼容）
+
+        返回 {"fresh": fresh_or_None, "changed": bool}；调用方负责写回。
+        """
+        fresh = prov.get("fresh")
+        if not fresh:
+            return {"fresh": None, "changed": False}
+        from .validator import validate
+        now = datetime.now()
+        changed = False
+
+        # 1) 过期判定（valid_until 是日期 'YYYY-MM-DD'）
+        vu = fresh.get("valid_until")
+        if vu:
+            try:
+                vu_dt = datetime.strptime(str(vu), "%Y-%m-%d")
+                if now.date() > vu_dt.date() and fresh.get("status") != "expired":
+                    fresh["status"] = "expired"
+                    fresh["penalty"] = 0.28
+                    changed = True
+            except ValueError:
+                pass  # 畸形日期不判过期，留给活验证/人工
+
+        # 2) 活验证
+        vtype = fresh.get("type", "manual")
+        spec = fresh.get("spec")
+        if vtype in ("file_exists", "command", "http") and spec:
+            check_spec = dict(spec)
+            check_spec.setdefault("type", vtype)
+            r = validate(check_spec)
+            fresh["last_checked_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
+            new_status = "current" if r.get("ok") else "stale"
+            new_penalty = 1.0 if r.get("ok") else 0.35
+            if fresh.get("status") != new_status or fresh.get("penalty") != new_penalty:
+                fresh["status"] = new_status
+                fresh["penalty"] = new_penalty
+                changed = True
+            # 活验证通过且配置了 ttl → 顺延有效期（循环验证的续期路径）
+            if r.get("ok") and fresh.get("ttl_days"):
+                new_vu = (now + timedelta(days=int(fresh["ttl_days"])))\
+                    .strftime("%Y-%m-%d")
+                if fresh.get("valid_until") != new_vu:
+                    fresh["valid_until"] = new_vu
+                    changed = True
+        return {"fresh": fresh, "changed": changed}
+
     def verify(self, key: str, auto_degrade: bool = True,
                degrade_threshold: float = 0.3) -> dict:
         """验证单条记忆：交叉检查源session → 评分 → 可选自动降级。
@@ -617,6 +671,18 @@ class MemoryLifecycle:
         except (json.JSONDecodeError, TypeError):
             prov = {}
 
+        # ── freshness 检查（独立于 source 交叉验证）──
+        # 1) valid_until 过期 → expired（时间边界硬规则，不靠 LLM）
+        # 2) 有 validator spec → 活验证（file_exists/command/http），结果写回
+        # 3) 无 fresh 配置 → 零影响（旧数据完全兼容）
+        fresh_out = self._check_freshness(prov)
+        fresh_result = fresh_out["fresh"]
+        if fresh_out["changed"]:
+            with self._tx():
+                self._conn.execute(
+                    "UPDATE memories SET provenance=? WHERE id=?",
+                    (json.dumps(prov, ensure_ascii=False), d["id"]))
+
         # 无源 session → 不可验证
         if not source_session:
             prov["v"] = "unverifiable"
@@ -632,7 +698,8 @@ class MemoryLifecycle:
                 "ok": True, "verification": "unverifiable",
                 "score": 0.0, "keyword_score": 0.0, "entity_score": 0.0,
                 "downgraded": False, "new_importance": importance,
-                "reason": "无 source_session"
+                "reason": "无 source_session",
+                "fresh": fresh_result
             }
 
         # 执行交叉检查
@@ -675,6 +742,7 @@ class MemoryLifecycle:
             "entity_score": entity_score, "method": method,
             "matched_ids": matched_ids[:10],
             "downgraded": False, "new_importance": importance,
+            "fresh": fresh_result
         }
 
         # 自动降级逻辑
@@ -899,7 +967,8 @@ class MemoryLifecycle:
               precomputed_vec=_NO_PRECOMPUTED_VEC,
               precomputed_sparse=_NO_PRECOMPUTED_SPARSE,
               auto_verify: bool = True,
-              source_session_id=None, source_msg_id=None):
+              source_session_id=None, source_msg_id=None,
+              validator=None):
         """自动学习：评分分类+语义去重+原话保留+session关联。
 
         source_session_id / source_msg_id: state→learn 派生链指针（P0 #1，
@@ -1433,7 +1502,6 @@ class MemoryLifecycle:
         if self._conn.execute("SELECT id FROM memories WHERE key=?", (key,)).fetchone():
             key = "%s_%d" % (key, int(datetime.now().timestamp() % 1000))
         # ── 验证管线: 新条目标记 pending_verification ──
-        init_prov = json.dumps({"v": "pending"}, ensure_ascii=False)
         self.set(key, content, category=category, tags=",".join(sorted(tags)),
                  importance=imp,
                  # 批量路径向量已定（含 None=嵌入失败），不再二次嵌入；
@@ -1441,10 +1509,22 @@ class MemoryLifecycle:
                  embed=(precomputed_vec is _NO_PRECOMPUTED_VEC),
                  source_session=source_session,
                  vector=qvec, sparse=qsparse, event_time=event_time,
-                 source_session_id=source_session_id, source_msg_id=source_msg_id)
-        # set() 不传 provenance，这里补写（_tx 保证事务闭合）
+                 source_session_id=source_session_id, source_msg_id=source_msg_id,
+                 validator=validator)
+        # set() 写入的 provenance 含 fresh（若传了 validator）——这里读回补
+        # v=pending，不整体覆盖（否则 set 里组装的 fresh 会被抹掉）
         with self._tx():
-            self._conn.execute("UPDATE memories SET provenance=? WHERE key=?", (init_prov, key))
+            row = self._conn.execute(
+                "SELECT provenance FROM memories WHERE key=?", (key,)).fetchone()
+            prov = {}
+            try:
+                prov = json.loads(row["provenance"] or "{}") if row else {}
+            except (json.JSONDecodeError, TypeError):
+                prov = {}
+            prov["v"] = "pending"
+            self._conn.execute(
+                "UPDATE memories SET provenance=? WHERE key=?",
+                (json.dumps(prov, ensure_ascii=False), key))
         # ── learn 侧闭环：episodic 索引 + 高重要度轻量验证（反馈 #2/#3）──
         _episodic_touch()
         v_status = _maybe_auto_verify(key, imp, content)

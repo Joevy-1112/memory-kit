@@ -52,6 +52,25 @@ class MemorySearch:
         """verification_status → 检索加权系数（未知状态按 unverified=1.0 兜底）。"""
         return self.VERIFY_WEIGHTS.get(status, 1.00)
 
+    def _freshness_penalty(self, d):
+        """provenance.fresh.penalty → 检索降权乘子（契约对齐 scope-recall
+        freshness_penalty 语义：expired 0.28 / stale 0.35 / 无 fresh 配置 1.0）。
+
+        检索是高频路径，这里只做轻量 JSON 解析（fresh 缺失 = 1.0 零开销）。
+        """
+        raw = d.get("provenance")
+        if not raw:
+            return 1.0
+        try:
+            prov = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            return 1.0
+        fresh = prov.get("fresh") if isinstance(prov, dict) else None
+        if not fresh:
+            return 1.0
+        p = fresh.get("penalty")
+        return float(p) if isinstance(p, (int, float)) else 1.0
+
     # 时间感知排序（v2 优化点 #4，2026-08-03 同步自服务器实现）
     # 公式: time_weight = clamp(1 / (1 + age_days / half_life_days), min_weight, 1.0)
     # half_life=30: 30 天内权重衰减到一半；min_weight=0.3: 最老记忆保留 30% 权重，
@@ -592,8 +611,10 @@ class MemorySearch:
                 # v2 时间窗口软重排：bias 乘入最终得分（无时间参数时恒 1.0）
                 _wb = self._window_bias(_tjd, tp)
                 d["time_bias"] = round(_wb, 4)
+                _fp = self._freshness_penalty(d)
+                d["freshness_penalty"] = round(_fp, 3)
                 d["rrf_score"] = round(_base * self._verify_weight(d.get("verification_status"))
-                                       * _tw * _wb, 5)
+                                       * _tw * _wb * _fp, 5)
                 fused.append(d)
         fused.sort(key=lambda x: x["rrf_score"], reverse=True)
         result = fused[:limit]

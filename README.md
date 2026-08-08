@@ -371,3 +371,28 @@ correction 闭环仍是我们的护城河。
 
 ### 不动（我们的护城河）
 - correction 闭环 / 遮蔽 overlay / 指针展开 / 实体合并（jieba）
+
+---
+
+## 2026-08-08 迭代追加（freshness 活验证接线 / validator 命名统一）
+
+- **validator 活验证（P0 #2，契约对齐 scope-recall freshness）**：
+  `memorykit/validator.py` 三种执行器（file_exists / command / http）+ 别名宽松归一化
+  （`normalize_validator_type`，未知值 fail-closed 到 manual）+ 批量降级通道
+  （`run_checks`）。纯标准库零第三方依赖，不破坏"核心只要 SQLite+numpy"。
+- **freshness 接线**（零新表，状态存 provenance.fresh）：
+  - `learn()` / `set()` 可传 `validator={"type", "spec", "ttl_days"}` → 写入
+    provenance.fresh（type/spec/valid_until/status/penalty）
+  - `verify()` 扩展：valid_until 过期 → expired + 0.28（时间边界硬规则）；
+    有 spec → 活验证 → current(1.0) / stale(0.35) + last_checked_at；
+    活验证通过 + ttl → 有效期顺延（循环验证续期）
+  - `search_multi` 乘性降权：freshness_penalty 并入 rrf_score（无 fresh 配置 = 1.0 零影响），
+    结果暴露 `freshness_penalty` 字段
+  - 旧数据完全兼容：无 fresh 的 provenance verify/search 行为不变
+- **命名统一（借用纪律）**：`VALIDATOR_KINDS` → `VALIDATOR_TYPES`，
+  `normalize_validator_kind` → `normalize_validator_type`，validate() 认 `type` 键优先
+  （`kind`/`validator_kind` 兼容存量写法）
+- 测试：`tests/test_freshness.py` 11 项（learn/set 写入、过期判定、活验证成败、
+  续期、search 降权排序、manual fail-closed、旧数据兼容）；全量 198 项
+  = 1 既有 live llama.cpp 失败项（环境项，与本次无关）
+- 详细记录见 `project-log.md`（2026-08-08 条目）+ `design-notes/scope-recall-borrowing.md`

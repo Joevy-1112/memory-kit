@@ -429,9 +429,10 @@ llama.cpp 8082 服务对同文本批量返回微差向量，cos<1 断言失败�
 3. 借鉴点在代码注释里**标注契约来源**（"契约对齐 scope-recall freshness"），但实现是 ours
 4. 原因：①保持 memorykit 设计语言统一 ②避免维护混淆（分不清自己的和抄的）③MIT 合法但要有自己的工程身份
 
-### validator.py 现状修正（待办）
-- [ ] 重命名 `VALIDATOR_KINDS`/`_VALIDATOR_KIND_ALIASES`/`normalize_validator_kind` 为 memorykit 自家命名
-- [ ] 保留契约语义（三种验证+fail-closed），实现保持 ours
+### validator.py 现状修正（2026-08-08 已完成）
+- [x] 重命名 `VALIDATOR_KINDS`/`_VALIDATOR_KIND_ALIASES`/`normalize_validator_kind` 为 memorykit 自家命名（`VALIDATOR_TYPES`/`_VALIDATOR_TYPE_ALIASES`/`normalize_validator_type`，`type` 键优先、`kind`/`validator_kind` 兼容）
+- [x] 保留契约语义（三种验证+fail-closed），实现保持 ours
+- [x] **freshness 接线完成（P0 #2）**：set()/learn() 加 `validator` 参数 → provenance.fresh；verify() 过期判定 + 活验证 + 续期；search_multi 乘性降权（freshness_penalty）。11 项新测试
 
 ---
 

@@ -28,14 +28,14 @@ import struct
 import logging
 import numpy as np
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
-logger = logging.getLogger(__name__)
-
-# Import mixins
 from .search import MemorySearch
 from .lifecycle import MemoryLifecycle
 from .embedder import HTTPEmbedder
+from .validator import normalize_validator_type
+
+logger = logging.getLogger(__name__)
 
 
 EMBEDDING_URL = os.environ.get("MEMORY_EMBED_URL", "http://127.0.0.1:8082")
@@ -505,7 +505,8 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             decay_profile: str = None, provenance: str = None,
             vector: list = None, water: int = 2,
             event_time: str = None, sparse: dict = None,
-            source_session_id: str = None, source_msg_id: str = None) -> int:
+            source_session_id: str = None, source_msg_id: str = None,
+            validator: dict = None) -> int:
         """Insert or replace a memory entry. Optionally computes embedding. Returns row id.
         
         If `vector` is provided (pre-computed), skip embedding call entirely.
@@ -574,6 +575,26 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         # ── provenance: 记录来源信息用于后续验证 ──
         prov_data = {"v": "pending", "src": source_session or "",
                      "len": len(content), "cat": category}
+        # ── validator/freshness: 可选活验证配置 → provenance.fresh ──
+        # 契约: {"type": "file_exists|command|http|manual|none", "spec": {...},
+        #        "ttl_days": N}。type 别名宽松（normalize_validator_type），
+        # 未知值 fail-closed 到 manual。状态机与检索降权由 verify()/search 消费。
+        if validator:
+            fresh = {}
+            vtype = normalize_validator_type(
+                validator.get("type", validator.get("validator_type", "")))
+            fresh["type"] = vtype
+            spec = validator.get("spec") or validator.get("validator_spec")
+            if spec:
+                fresh["spec"] = spec
+            ttl = validator.get("ttl_days")
+            if ttl:
+                fresh["ttl_days"] = int(ttl)
+                fresh["valid_until"] = (datetime.now() + timedelta(days=int(ttl)))\
+                    .strftime("%Y-%m-%d")
+            fresh["status"] = "unchecked"   # 等待首次 verify() 活验证/过期检查
+            fresh["penalty"] = 1.0          # 检索降权乘子（verify/过期后更新）
+            prov_data["fresh"] = fresh
         provenance_final = json.dumps(prov_data) if not provenance else provenance
 
         # 2026-08-04 修复（issue #3，审查 t_70aa36b8）：

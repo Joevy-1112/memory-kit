@@ -9,7 +9,7 @@
 - memorykit 核心只依赖 SQLite + numpy，validator 同样零第三方依赖（urllib/
   subprocess 均为标准库）——不破坏"pip install 即用"的约束。
 - 三种 validator：file_exists / command / http，对应 scope-recall 的
-  VALIDATOR_KINDS 契约；unknown 值 fail-closed 到 manual（不自动判定新鲜）。
+  VALIDATOR_TYPES 契约；unknown 值 fail-closed 到 manual（不自动判定新鲜）。
 - 每个检查返回结构化结果（ok/detail/elapsed_ms/checked_at），调用方决定
   怎么用它（写 freshness 状态、排序惩罚、审计日志）——本模块只做"测"，不
   做"判"，与 freshness 状态机解耦。
@@ -23,7 +23,7 @@
   RFC1918）由上述信任模型兜底——调用方不应把不可信来源的 URL 写进 spec。
 
 用法：
-  from memorykit.validator import validate, normalize_validator_kind
+  from memorykit.validator import validate, normalize_validator_type
   r = validate({"kind": "file_exists", "path": "/etc/hostname"})
   r = validate({"kind": "http", "url": "http://127.0.0.1:8082/v1/models", "method": "HEAD"})
   r = validate({"kind": "command", "command": "ls /tmp/marker"})
@@ -43,11 +43,11 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-# 与 scope-recall freshness.VALIDATOR_KINDS 对齐的公共契约
-VALIDATOR_KINDS = ("file_exists", "command", "http", "manual", "none")
+# 与 scope-recall freshness.VALIDATOR_TYPES 对齐的公共契约
+VALIDATOR_TYPES = ("file_exists", "command", "http", "manual", "none")
 
 # 别名归一化（照搬 scope-recall 的宽松入口，保证存量写法不炸）
-_VALIDATOR_KIND_ALIASES = {
+_VALIDATOR_TYPE_ALIASES = {
     "": "none",
     "none": "none",
     "no_validation": "none",
@@ -78,16 +78,16 @@ MAX_DETAIL_CHARS = 800
 _HTTP_SCHEMES = ("http", "https")  # http 执行器 scheme 白名单（拒绝 file:// 等）
 
 
-def normalize_validator_kind(kind: Any) -> str:
-    """把各种写法归一化到 VALIDATOR_KINDS。
+def normalize_validator_type(kind: Any) -> str:
+    """把各种写法归一化到 VALIDATOR_TYPES。
 
     与 scope-recall 语义一致：未知的非空取值 fail-closed 到 manual
     （宁可标记"需要人工复核"，也不把过期操作事实误当永恒偏好）。
     """
     normalized = str(kind or "").strip().lower().replace(" ", "_").replace("-", "_")
-    if normalized in VALIDATOR_KINDS:
+    if normalized in VALIDATOR_TYPES:
         return normalized
-    return _VALIDATOR_KIND_ALIASES.get(normalized, "manual" if normalized else "none")
+    return _VALIDATOR_TYPE_ALIASES.get(normalized, "manual" if normalized else "none")
 
 
 def _now_iso() -> str:
@@ -276,7 +276,9 @@ def validate(spec: Any) -> dict[str, Any]:
     if not isinstance(spec, Mapping):
         return _result(False, "manual", f"unsupported spec type: {type(spec).__name__}", 0.0)
 
-    kind = normalize_validator_kind(_extract(spec, "kind", _extract(spec, "validator_kind", "")))
+    kind = normalize_validator_type(_extract(spec, "type",
+                                     _extract(spec, "kind",
+                                     _extract(spec, "validator_kind", ""))))
     raw_inner = spec.get("validator_spec")
     inner: Mapping[str, Any] = raw_inner if isinstance(raw_inner, Mapping) else spec
 
