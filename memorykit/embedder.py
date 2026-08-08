@@ -182,9 +182,13 @@ class LocalHashEmbedder(Embedder):
     - 语义质量弱（词袋+字符 n-gram 的 hash 桶）但**可检索**——比"直接没有
       语义通道"强一个档次。向量是放大器不是真相源，local-hash 绝不能反向
       覆盖已 verified 的记忆（检索降权/排序仍由 verify/freshness 管）
+    - **维度契约（自审 P0, 2026-08-08）**：默认 1024 维，与主嵌入器 bge-m3
+      对齐——local-hash 向量与 bge-m3 向量会共存于同一张表（降级期间写入 +
+      恢复后继续写入），维度不一致会让 np.dot 在检索时直接崩（256×1024
+      不可对齐）。同维后 cos 计算合法，语义弱但兜底成立。
     """
 
-    def __init__(self, dims: int = 256):
+    def __init__(self, dims: int = 1024):
         self.dims = max(64, int(dims))
         self._tok_re = re.compile(r"[\w\u4e00-\u9fff]+")
 

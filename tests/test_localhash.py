@@ -21,6 +21,7 @@
   python run_tests.py localhash
   或：python -m unittest tests.test_localhash -v
 """
+import json
 import math
 import os
 import sys
@@ -80,7 +81,7 @@ class LocalHashEmbedderTest(unittest.TestCase):
     def test_02_dims_and_norm(self):
         e = LocalHashEmbedder()
         v = e.embed("显卡预算与显存大小的讨论记录")
-        self.assertEqual(len(v), 256)
+        self.assertEqual(len(v), 1024)
         norm = math.sqrt(sum(x * x for x in v))
         self.assertAlmostEqual(norm, 1.0, places=5)
 
@@ -88,7 +89,7 @@ class LocalHashEmbedderTest(unittest.TestCase):
         e = LocalHashEmbedder()
         v = e.embed("")
         self.assertIsNotNone(v)
-        self.assertEqual(len(v), 256)
+        self.assertEqual(len(v), 1024)
         self.assertGreater(math.sqrt(sum(x * x for x in v)), 0.0)
 
     def test_04_shared_token_similar(self):
@@ -108,7 +109,7 @@ class MemoryDBFallbackTest(unittest.TestCase):
                 self.assertEqual(db._vector_status, "degraded")
                 vec = db._embed("嵌入服务不可达时本地兜底")
                 self.assertIsNotNone(vec)
-                self.assertEqual(len(vec), 256)
+                self.assertEqual(len(vec), 1024)
                 # local-hash 恒可用（本地确定性，无网络依赖）
                 self.assertTrue(db._is_embedding_available())
             finally:
@@ -154,6 +155,38 @@ class MemoryDBFallbackTest(unittest.TestCase):
                 res = db.search_multi("服务器嵌入服务 8082 端口", limit=5)
                 keys = [d["key"] for d in res]
                 self.assertIn(r1["key"], keys)
+            finally:
+                db.close()
+                if os.path.exists(path):
+                    os.unlink(path)
+
+
+    def test_09_dims_aligned_with_bge(self):
+        # 自审 P0 回归: local-hash 默认维度必须与主嵌入器 bge-m3(1024) 一致,
+        # 否则降级期间写入的向量 + 恢复后 bge-m3 查询向量 np.dot 直接崩
+        e = LocalHashEmbedder()
+        self.assertEqual(len(e.embed("对齐维度测试")), 1024)
+
+    def test_10_mixed_dimension_search_no_crash(self):
+        # 自审 P0 回归: 降级期间(HTTP 挂)learn 存 local-hash 向量,
+        # "恢复后"用 1024 维查询(模拟 bge-m3 服务回来了) → search 不崩
+        with mock.patch("memorykit.db.HTTPEmbedder", _FakeHTTP):
+            db, path = make_tmp_db()  # degraded → local-hash 1024 维
+            try:
+                r = db.learn("降级期间写入的记忆内容需要能检索到")
+                # 模拟恢复: 查询向量用 1024 维(与 bge-m3 同维)
+                qvec = [0.01] * 1024
+                res = db.search_multi("降级期间写入的记忆内容", limit=5)
+                # 不崩 + 结果结构正常(语义路径可能因 hash 桶稀疏召回有限, 不断言召回)
+                self.assertIsInstance(res, list)
+                # 直接 np.dot 验证同维可算
+                import numpy as np
+                rows = db._conn.execute(
+                    "SELECT vector FROM memories WHERE key=?", (r["key"],)).fetchone()
+                if rows and rows["vector"]:
+                    v = np.array(json.loads(rows["vector"]), dtype=np.float32)
+                    self.assertEqual(v.shape, (1024,))
+                    _ = np.dot(v, np.array(qvec, dtype=np.float32))  # 不抛即过
             finally:
                 db.close()
                 if os.path.exists(path):

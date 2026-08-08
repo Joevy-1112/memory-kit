@@ -271,3 +271,26 @@ P1 渲染标注（render_memory_lines 纯函数 helper，一行接入示例）
 
 ### 下一步
 P1 drain_journal（常驻提炼，依赖指针链地基）→ P1 forgetting 壳
+
+## 2026-08-08 — 自审 + P0 修复: local-hash 向量维度混合 bug
+
+### 背景
+yamii 后端 503 无法外审 → 按 gpt-review 强任务标准自审(design-notes/
+self-review-2026-08-08.md)。实测抓到 **P0**: LocalHashEmbedder 默认 256 维,
+bge-m3 是 1024 维——降级期间 learn 存的 256 维向量 + 服务恢复后 1024 维
+查询向量 → search.py np.dot 直接 ValueError, 语义检索崩溃。兜底引入了比
+故障更糟的状态("挂了会换一种方式炸")。
+
+### 修复
+- LocalHashEmbedder 默认 dims=1024(对齐 bge-m3), 同维后 cos 计算合法
+- 文档标注维度契约: local-hash 必须与主嵌入器同维(向量共存同一表)
+- 回归测试 +2: test_09(默认 1024 维) / test_10(降级写入+恢复查询不崩,
+  np.dot 同维可算)
+- 全量 216 项 = 1 既有 live llama.cpp 失败项, 零回归
+
+### 自审其他发现(未修, 记录在案)
+- P1: freshness 不是主动状态机(只 verify() 触发), 文档未明说
+- P1: provenance JSON 检索热路径逐行解析, 无性能讨论
+- P1: 测试套件常年 1 failure(live 8082 断言), 建议 mock/放宽
+- P2: reconstruct() 新增 state.db 耦合点; README 主体缺 attribution
+- 教训: 兜底实现必须检查与主路径的维度/格式契约一致性(审查 checklist)
