@@ -425,3 +425,19 @@ correction 闭环仍是我们的护城河。
 - **测试**：`tests/test_render.py` 8 项（标注优先/兜底/关闭/换行/截断/无时间/
   畸形时间/多条目）；全量 206 项 = 1 既有 live llama.cpp 失败项。
 - examples/basic.py 已加一行用法。详细记录见 `project-log.md`。
+
+### 2026-08-08 迭代追加（drain_journal 常驻提炼）
+
+- **`drain_journal(limit=200, dry_run=False)`**（lifecycle.py）：按 watermark
+  从 state.db 扫未提炼消息 → 复用 learn() 提炼（带指针，可回溯）。把
+  "碰巧被提炼"变成"有节奏地扫库"。
+  - 提炼规则：role ∈ {user, assistant}（tool 输出是 JSON 噪音不提炼）、
+    content ≥ 10 字符；learn 自身处理分类/去重/合并
+  - watermark 存 memory.db 的 `drain_state` KV 表（幂等，重复跑不重提炼）
+  - 收据：{processed, inserted, merged, skipped, backlog, last_msg_id,
+    dry_run}；无积压 → processed=0 正常空跑；无 state.db → ok=False no_state_db
+  - **CLI**：`python -m memorykit.db drain-journal [--limit N] [--dry-run]`
+- **测试**：`tests/test_drain_journal.py` 7 项（dry-run 零写入/正常提炼带指针/
+  watermark 幂等/tool 跳过/短消息跳过/no_state_db/收据字段+积压）；
+  全量 223 项 = 1 既有 live llama.cpp 失败项。
+- 详细记录见 `project-log.md`（2026-08-08 条目）。

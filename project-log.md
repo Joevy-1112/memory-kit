@@ -294,3 +294,32 @@ bge-m3 是 1024 维——降级期间 learn 存的 256 维向量 + 服务恢复�
 - P1: 测试套件常年 1 failure(live 8082 断言), 建议 mock/放宽
 - P2: reconstruct() 新增 state.db 耦合点; README 主体缺 attribution
 - 教训: 兜底实现必须检查与主路径的维度/格式契约一致性(审查 checklist)
+
+## 2026-08-08 — drain_journal 常驻提炼（P1 #5）
+
+### 状态
+✅ P1 #5 完成（design-notes §5 修正版，复用指针链）：223 项测试 =
+216 旧 + 7 新，仅 1 既有 live llama.cpp 失败项，零回归。
+
+### 设计（不建 journal 表，watermark + 指针链）
+- **drain_journal(limit, dry_run)**：state.db 就是原始消息存档（不重复存），
+  memory.db 加 `drain_state` KV 表记 watermark（last_msg_id，幂等）。
+  SELECT id > watermark AND role IN (user,assistant) AND length >= 10
+  ORDER BY id LIMIT N → 逐条 learn(source_session_id, source_msg_id) →
+  推进 watermark。
+- 提炼规则：tool 消息跳过（JSON/噪音）；短消息跳过（learn 有最短门槛，
+  预过滤避免空转）；learn 自身处理分类/去重/合并——drain 只喂料与收据，
+  不另起提炼管线（避免 scope-recall 双提取逻辑长期共存的复杂度）。
+- 收据：{processed, inserted, merged, skipped, backlog, last_msg_id}；
+  dry_run 只统计不写（watermark 不推进、memory 不新增）。
+- CLI：`python -m memorykit.db drain-journal [--limit N] [--dry-run]`，
+  README 可给 cron 示例（如每小时跑一次，无积压自动空跑）。
+
+### 测试（tests/test_drain_journal.py，7 项）
+dry-run 零写入 / 正常提炼带指针（reconstruct 可回溯）/ watermark 幂等
+（第二次 processed=0）/ tool 跳过 / 短消息跳过 / no_state_db / 收据字段
++ 积压递减。用临时 state.db（messages 表最小结构），不碰正式库。
+
+### 下一步
+P1 forgetting 壳（soft-archive + dry-run + 审计，包在 age() 外面）
+→ 测试套件常年 1 failure 的 live 项 mock 化（自审 P1-3）

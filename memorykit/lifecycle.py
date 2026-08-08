@@ -1607,6 +1607,92 @@ class MemoryLifecycle:
     # 本方法只建"可回溯"能力：给定 memory_id，沿指针回 state.db 找回提炼
     # 来源的原始消息。**不承诺自动重建**（重放/蒸馏是后续管线的事）。
 
+    def drain_journal(self, limit: int = 200, dry_run: bool = False) -> dict:
+        """常驻提炼：按指针链从 state.db 取未提炼消息 → 复用 learn() 提炼。
+
+        设计（design-notes §5 修正版）：不建 journal 表——state.db 就是原始
+        消息存档（Hermes 原生会话库，永不删），本方法用 watermark 记住上次
+        提炼位置，把"碰巧被提炼"变成"有节奏地扫库"。
+
+        提炼消息规则：
+        - role ∈ {user, assistant}（tool 输出是 JSON/噪音，不提炼）
+        - content.strip() 长度 >= 10（learn 有最短长度门槛，预过滤避免空转）
+        - learn() 带 source_session_id/source_msg_id 指针（可回溯重建）
+        - learn 自身处理分类/去重/合并（drain 只负责喂料与收据）
+
+        返回收据：
+          {"ok": True, "processed": N, "inserted": N, "merged": N,
+           "skipped": N, "backlog": N, "last_msg_id": N, "dry_run": bool}
+          {"ok": False, "reason": "no_state_db"|"state_db_unreadable"}
+          - 无积压 → processed=0, backlog=0（正常空跑，不算失败）
+          - dry_run=True：只扫描统计，不 learn、不推进 watermark
+        """
+        import os as _os
+        import sqlite3 as _sql
+        state_path = getattr(self, "state_db_path", None)
+        if not state_path or not _os.path.exists(state_path):
+            return {"ok": False, "reason": "no_state_db"}
+        # watermark：drain_state KV 表（self._conn 是 memory.db，不是 state.db）
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS drain_state "
+            "(key TEXT PRIMARY KEY, value TEXT)")
+        row = self._conn.execute(
+            "SELECT value FROM drain_state WHERE key='last_msg_id'").fetchone()
+        last_id = int(row["value"]) if row and row["value"] else 0
+
+        try:
+            conn = _sql.connect(state_path)
+            conn.row_factory = _sql.Row
+            try:
+                rows = conn.execute(
+                    "SELECT id, session_id, role, content FROM messages "
+                    "WHERE id > ? AND role IN ('user','assistant') "
+                    "AND length(content) >= 10 "
+                    "ORDER BY id LIMIT ?",
+                    (last_id, limit),
+                ).fetchall()
+                total = conn.execute(
+                    "SELECT COUNT(*) c FROM messages WHERE id > ?",
+                    (last_id,)).fetchone()["c"]
+            finally:
+                conn.close()
+        except Exception:
+            return {"ok": False, "reason": "state_db_unreadable"}
+
+        inserted = merged = skipped = 0
+        max_id = last_id
+        for m in rows:
+            mid = m["id"]
+            max_id = max(max_id, mid)
+            if dry_run:
+                continue
+            r = self.learn(
+                m["content"], source="drain",
+                source_session_id=m["session_id"], source_msg_id=mid)
+            if r.get("merged"):
+                merged += 1
+            elif r.get("key"):
+                inserted += 1
+            else:
+                skipped += 1
+
+        if not dry_run and max_id > last_id:
+            with self._tx():
+                self._conn.execute(
+                    "INSERT INTO drain_state(key, value) VALUES('last_msg_id', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (str(max_id),))
+        return {
+            "ok": True,
+            "processed": len(rows),
+            "inserted": inserted,
+            "merged": merged,
+            "skipped": skipped,
+            "backlog": max(0, total - len(rows)),
+            "last_msg_id": max_id,
+            "dry_run": dry_run,
+        }
+
     def reconstruct(self, memory_id: int) -> dict:
         """state→learn 派生链回溯：返回该 memory 提炼来源的原始消息。
 

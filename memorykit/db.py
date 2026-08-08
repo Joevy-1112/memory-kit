@@ -2042,6 +2042,14 @@ def _cli():
 
     sub.add_parser("verify-stats", help="验证管线统计：按状态分组计数")
 
+    # ── 常驻提炼 CLI ──
+    p_drain = sub.add_parser("drain-journal",
+                             help="从 state.db 按 watermark 提炼未处理消息到 memory")
+    p_drain.add_argument("--limit", type=int, default=200,
+                         help="单批最大条数 (default: 200)")
+    p_drain.add_argument("--dry-run", action="store_true",
+                         help="只扫描统计，不写入不推进 watermark")
+
     p_export = sub.add_parser("export", help="Export to JSON")
     p_export.add_argument("filepath")
 
@@ -2305,6 +2313,17 @@ def _cli():
         print(f"  平均验证分: {s.get('avg_verification_score', 0):.4f}")
         print(f"  未验证率: {s.get('unverified_pct', 0):.1f}%")
         print(f"  待验证率: {s.get('pending_pct', 0):.1f}%")
+
+    elif args.cmd == "drain-journal":
+        r = db.drain_journal(limit=args.limit, dry_run=args.dry_run)
+        if not r.get("ok"):
+            print(f"❌ drain-journal 失败: {r.get('reason')}")
+        else:
+            tag = " (dry-run，未写入)" if args.dry_run else ""
+            print(f"📥 常驻提炼{tag}")
+            print(f"  处理: {r['processed']} | 新增: {r['inserted']} "
+                  f"| 合并: {r['merged']} | 跳过: {r['skipped']}")
+            print(f"  剩余积压: {r['backlog']} | watermark→{r['last_msg_id']}")
 
     elif args.cmd == "export":
         db.export(args.filepath)
