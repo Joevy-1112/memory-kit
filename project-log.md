@@ -323,3 +323,34 @@ dry-run 零写入 / 正常提炼带指针（reconstruct 可回溯）/ watermark 
 ### 下一步
 P1 forgetting 壳（soft-archive + dry-run + 审计，包在 age() 外面）
 → 测试套件常年 1 failure 的 live 项 mock 化（自审 P1-3）
+
+## 2026-08-08 — forgetting 遗忘治理壳（P1 #6，借鉴清单收尾）
+
+### 状态
+✅ P1 #6 完成——**design-notes 借鉴清单 6 项全部落地**（P0 #1 指针链 /
+P0 #2 freshness / P1 #3 渲染 / P1 #4 local-hash / P1 #5 drain / P1 #6 forgetting）：
+229 项测试 = 223 旧 + 6 新，仅 1 既有 live llama.cpp 失败项，零回归。
+
+### 设计（包在 age() 外面，不动衰减状态机）
+- **governance_audit_events 表**（SCHEMA_SQL 新表）：batch_id/action/
+  memory_id/memory_key/before/after/created_at——before/after 快照 =
+  天然回滚材料（契约对齐 scope-recall governance_audit_events，实现 ours）
+- **forgetting_report()** 只读分类：soft_archive / hard_delete（secret 正则
+  或 <8 字符噪音）/ review_debt（pending 超 7 天挂起）/ duplicate_groups
+- **forgetting(dry_run=True 默认, delete=False)**：dry_run 只出计划；
+  apply 软归档（verification_status='ARCHIVED' + importance=0.05）或
+  delete=True 才物理删；每条记审计，batch_id 自动生成或传入
+- **rollback(batch_id)**：soft_archive 快照 UPDATE 还原全列；hard_delete
+  快照 INSERT 重建（id 保原值）——审计行保留
+- 与 scope-recall 差异：它 hard-delete 要求 vector_store 存在（fail-closed）；
+  我们把 before 快照写审计表即视为"可回滚材料"，物理删前必留快照——
+  我们的向量在 SQLite 同一行，快照天然包含，不需要 companion 库检查
+
+### 测试（tests/test_forgetting.py，6 项）
+分类正确性 / dry-run 零写库 / soft_archive 审计 + 状态变更 / hard_delete
+物理删 + 审计含 content / 整批 rollback 双向还原 / 空库不崩。
+
+### 借鉴清单收尾备注
+6 项全落地后 README 的"补齐清单"可标记完成。剩余自审遗留：
+①测试套件 live 项 mock 化（P1-3）②freshness 主动调度（P1-1）
+③README 主体 attribution（P2）——下轮迭代处理。

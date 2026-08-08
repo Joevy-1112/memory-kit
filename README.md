@@ -441,3 +441,21 @@ correction 闭环仍是我们的护城河。
   watermark 幂等/tool 跳过/短消息跳过/no_state_db/收据字段+积压）；
   全量 223 项 = 1 既有 live llama.cpp 失败项。
 - 详细记录见 `project-log.md`（2026-08-08 条目）。
+
+### 2026-08-08 迭代追加（forgetting 遗忘治理壳）
+
+- **`forgetting_report()`**（只读）：扫描分类遗忘候选——soft_archive
+  （water≥2 且 degraded/disputed/STALE 或 importance≤0.15）/ hard_delete
+  （secret 模式 api key/token/password 或 <8 字符噪音）/ review_debt
+  （pending/unverified 超 7 天，不删挂起）/ duplicate_groups（同 category
+  key 前缀相同）。
+- **`forgetting(dry_run=True, delete=False, batch_id=None, limit=200)`**：
+  dry_run 只出计划；apply 软归档（ARCHIVED + importance 0.05）或显式
+  delete=True 才物理删——**每条记审计**（before/after 快照 + batch_id）。
+- **`rollback(batch_id)`**：按审计批次还原——soft_archive 快照全行 UPDATE，
+  hard_delete 快照 INSERT 重建（id 保原值）。审计行保留（回滚也是审计）。
+- **不动 age() 状态机**：衰减是护城河，治理壳只加"可审计 + 可回滚 + dry-run"。
+- **测试**：`tests/test_forgetting.py` 6 项（分类/dry-run 零写库/软归档审计/
+  物理删审计/整批回滚/空库）；全量 229 项 = 1 既有 live llama.cpp 失败项。
+- **scope-recall 借鉴清单 6 项至此全部完成**（P0×2 + P1×4），
+  详细记录见 `project-log.md`（2026-08-08 条目）。

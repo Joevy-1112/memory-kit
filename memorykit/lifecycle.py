@@ -459,6 +459,180 @@ class MemoryLifecycle:
 
         return result
 
+    # ── 遗忘治理壳（P1 #6，2026-08-08）────────────────────────────────────
+    # 不动 age() 的状态机（衰减是护城河），外面包"可审计 + 可回滚 + dry-run"：
+    #   forgetting_report() 只读分类 → forgetting(dry_run=True) 出计划 →
+    #   forgetting() apply 记审计（before/after 快照 + batch_id）→ rollback() 整批还原。
+    # 契约对齐 scope-recall forgetting 的"先出报告再执行，默认只软归档"，
+    # 实现是 ours（审计表在 memory.db 内，非独立 governance 库）。
+
+    _SECRET_PATTERNS = (
+        r"sk-[a-zA-Z0-9]{16,}", r"api[_-]?key[\"']?\s*[:=]\s*[\"'][a-zA-Z0-9]{16,}",
+        r"password[\"']?\s*[:=]\s*[\"'][^\s\"']+", r"token[\"']?\s*[:=]\s*[\"'][a-zA-Z0-9]{16,}",
+    )
+
+    def forgetting_report(self, review_debt_days: int = 7,
+                          duplicate_window: int = 20) -> dict:
+        """只读扫描分类遗忘候选（不写库）。
+
+        分类规则（照 forgetting.py 语义，去掉 scope 维度）：
+        - soft_archive: water>=2（可自动淘汰）且（degraded/disputed/STALE 或
+          importance<=0.15）——低价值/已降级，软归档不物理删
+        - hard_delete: 内容命中 secret 模式（api key/token/password 等）或
+          极短噪音（<8 字符）——敏感或纯噪声才物理删
+        - review_debt: verification_status ∈ {pending, unverified} 且
+          created_at 超过 review_debt_days——待复核，不删挂起
+        - duplicate_groups: 同 category 且 key 前缀（category/MMDD_前 12 字符）
+          相同——疑似重复组（learn 去重失败残留）
+
+        返回 {"soft_archive": [id...], "hard_delete": [id...],
+              "review_debt": [id...], "duplicate_groups": [[id...], ...]}
+        """
+        import json as _json
+        rows = self._conn.execute(
+            "SELECT id, key, category, content, importance, water, "
+            "verification_status, created_at, accessed_at FROM memories"
+        ).fetchall()
+        soft, hard, debt = [], [], []
+        dup_groups: dict = {}
+        for r in rows:
+            content = r["content"] or ""
+            cat = r["category"] or ""
+            # hard_delete: secret 模式 / 极短噪音
+            import re as _re
+            is_secret = any(_re.search(p, content, _re.IGNORECASE)
+                            for p in self._SECRET_PATTERNS)
+            if is_secret or (len(content.strip()) < 8):
+                hard.append(r["id"])
+                continue
+            # review_debt: pending/unverified 且老
+            if r["verification_status"] in ("pending", "unverified") and r["created_at"]:
+                try:
+                    from datetime import datetime as _dt
+                    age_days = (_dt.now() - _dt.strptime(
+                        r["created_at"][:19], "%Y-%m-%d %H:%M:%S")).days
+                except ValueError:
+                    age_days = 0
+                if age_days >= review_debt_days:
+                    debt.append(r["id"])
+                    continue
+            # soft_archive
+            if (r["water"] or 0) >= 2 and (
+                    r["verification_status"] in ("degraded", "disputed", "STALE")
+                    or (r["importance"] or 0.5) <= 0.15):
+                soft.append(r["id"])
+                continue
+            # duplicate_groups: 同 category + key 主体前缀相同
+            key_prefix = str(r["key"] or "").split("_")[0] + "|" + cat
+            dup_groups.setdefault(key_prefix, []).append(r["id"])
+        dups = [ids for ids in dup_groups.values() if len(ids) > 1]
+        return {
+            "soft_archive": soft,
+            "hard_delete": hard,
+            "review_debt": debt,
+            "duplicate_groups": dups,
+        }
+
+    def forgetting(self, dry_run: bool = True, delete: bool = False,
+                   batch_id: str = None, limit: int = 200) -> dict:
+        """遗忘治理执行：dry_run 只出计划；apply 记审计后可回滚。
+
+        参数：
+          dry_run: True（默认）只返回 forgetting_report() 分类计划，不写库
+          delete:  False（默认）只软归档；True 才物理删 hard_delete 候选
+          batch_id: 审计批次号（默认自动生成 YYYYMMDD-HHMMSS），同一批可整批回滚
+          limit: 单批处理上限（soft_archive + hard_delete 合计）
+
+        返回：
+          dry_run: {"dry_run": True, "report": {...}, "plan": {...}}
+          apply:   {"dry_run": False, "batch_id": ..., "soft_archived": N,
+                    "hard_deleted": N, "audited": N}
+        """
+        import json as _json
+        report = self.forgetting_report()
+        if dry_run:
+            return {"dry_run": True, "report": report,
+                    "plan": {"soft_archive": len(report["soft_archive"]),
+                             "hard_delete": len(report["hard_delete"]),
+                             "review_debt": len(report["review_debt"]),
+                             "duplicate_groups": len(report["duplicate_groups"])}}
+        if batch_id is None:
+            batch_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+        targets = list(report["soft_archive"][:limit])
+        if delete:
+            targets += list(report["hard_delete"][:limit])
+        soft_archived = hard_deleted = audited = 0
+        for mid in targets:
+            row = self._conn.execute(
+                "SELECT * FROM memories WHERE id=?", (mid,)).fetchone()
+            if not row:
+                continue
+            before = _json.dumps(dict(row), ensure_ascii=False, default=str)
+            is_hard = delete and mid in report["hard_delete"]
+            with self._tx():
+                if is_hard:
+                    self._conn.execute("DELETE FROM memories WHERE id=?", (mid,))
+                    action = "hard_delete"
+                    hard_deleted += 1
+                else:
+                    self._conn.execute(
+                        "UPDATE memories SET verification_status='ARCHIVED', "
+                        "importance=0.05 WHERE id=?", (mid,))
+                    action = "soft_archive"
+                    soft_archived += 1
+                self._conn.execute(
+                    "INSERT INTO governance_audit_events"
+                    "(batch_id, action, memory_id, memory_key, before, after) "
+                    "VALUES(?,?,?,?,?,?)",
+                    (batch_id, action, mid, row["key"], before,
+                     _json.dumps({"verification_status": "ARCHIVED",
+                                  "importance": 0.05}, ensure_ascii=False)))
+                audited += 1
+        return {"dry_run": False, "batch_id": batch_id,
+                "soft_archived": soft_archived, "hard_deleted": hard_deleted,
+                "audited": audited}
+
+    def rollback(self, batch_id: str) -> dict:
+        """按审计批次回滚 forgetting（before 快照还原行）。
+
+        只回滚本批次记录过的 memory_id：
+        - soft_archive 的 before 快照全行 → UPDATE 还原（verification_status/
+          importance 等全部列）
+        - hard_delete 的 before 快照 → INSERT 重建（id 保持原值）
+        审计行保留（回滚记录也是审计的一部分）。
+
+        返回 {"batch_id": ..., "restored": N, "not_found": N}
+        """
+        import json as _json
+        rows = self._conn.execute(
+            "SELECT id, action, memory_id, before FROM governance_audit_events "
+            "WHERE batch_id=?", (batch_id,)).fetchall()
+        restored = not_found = 0
+        for r in rows:
+            try:
+                snap = _json.loads(r["before"]) if r["before"] else {}
+            except (ValueError, TypeError):
+                snap = {}
+            if not snap:
+                not_found += 1
+                continue
+            with self._tx():
+                if r["action"] == "soft_archive":
+                    cols = ", ".join(f"{k}=?" for k in snap)
+                    self._conn.execute(
+                        f"UPDATE memories SET {cols} WHERE id=?",
+                        (*snap.values(), snap.get("id") or r["memory_id"]))
+                elif r["action"] == "hard_delete":
+                    cols = ", ".join(snap.keys())
+                    ph = ", ".join("?" * len(snap))
+                    self._conn.execute(
+                        f"INSERT OR REPLACE INTO memories({cols}) VALUES({ph})",
+                        tuple(snap.values()))
+                restored += 1
+        return {"batch_id": batch_id, "restored": restored,
+                "not_found": not_found}
+
     # ── 轻量验证兜底（2026-08-07 小龙虾反馈 #4：验证闭环空转 vscore=0）──
     # OpenClaw 侧 bridge.py 调 MemoryDB 时 state_db_path 为 None（小龙虾库
     # 没有 state.db），_cross_check 永远拿不到源消息 → _maybe_auto_verify 恒

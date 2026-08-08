@@ -258,6 +258,20 @@ CREATE TABLE IF NOT EXISTS correction_log (
 );
 CREATE INDEX IF NOT EXISTS idx_correction_log_key ON correction_log(memory_key);
 CREATE INDEX IF NOT EXISTS idx_correction_log_created ON correction_log(created_at);
+
+-- 遗忘治理审计（P1 #6，2026-08-08）：forgetting() 的 before/after 快照 =
+-- 天然回滚材料（batch_id 整批回滚）。契约对齐 scope-recall governance_audit_events。
+CREATE TABLE IF NOT EXISTS governance_audit_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id    TEXT NOT NULL,
+    action      TEXT NOT NULL,       -- soft_archive | hard_delete | restore
+    memory_id   INTEGER NOT NULL,
+    memory_key  TEXT,
+    before      TEXT DEFAULT NULL,   -- 行快照 JSON（soft_archive 全行；hard_delete 含 content）
+    after       TEXT DEFAULT NULL,
+    created_at  TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_audit_batch ON governance_audit_events(batch_id);
 """
 
 
