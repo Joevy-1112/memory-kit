@@ -400,3 +400,25 @@ live 服务失败，各轮 project-log 都写"既有环境项，与本次无关"
 
 ### 状态
 ✅ v1.2.0，229 项测试全绿（本轮改动不碰逻辑路径，仅统计命名/版本/文档）。
+
+## 2026-08-08 — CI 修复: jieba 缺失致 13 项失败(连续 6 个 push 红)
+
+### 根因
+CI workflow 只 `pip install numpy`, 没装项目依赖——pyproject.toml 声明了
+jieba==0.42.1 但 CI 从未 `pip install .`。jieba 缺失 → 中文实体抽取懒加载
+跳过 → 依赖用户词典的实体测试("小鸡翅" 等)13 项全挂。本地 .venv(有 jieba)
+全绿掩盖了问题, 推 GitHub 才暴露。**测试环境与 CI 环境依赖不一致**。
+
+### 修复
+ci.yml 的 Install dependencies 改为 `pip install -e .`——装项目自身依赖
+(验证 pyproject 完整 + jieba/numpy 齐), 不再手写依赖清单(避免漂移)。
+
+### 验证
+- 本地模拟 CI(干净 venv + pip install -e . + python run_tests.py):
+  229 项 = OK (skipped=2) ✅
+- 推送后真 CI 三版本矩阵(3.10/3.11/3.12)应全绿
+
+### 教训(加入 checklist)
+- 提交前若 CI 存在, 检查"本地 venv 依赖 ≠ CI 依赖"的漂移(本地 jieba 装过,
+  CI 没装 → 本地全绿 CI 红)
+- run_tests.py 在本地全绿 ≠ 仓库可 CI——用干净 venv 复现 CI 路径再推

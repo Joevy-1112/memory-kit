@@ -18,6 +18,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        run: pip install numpy
+        # 2026-08-08 修复: 之前只装 numpy 没装 jieba → 中文实体测试 13 项全挂。
+        # 改用 pip install -e . 装项目自身依赖(验证 pyproject 完整 + jieba/numpy 齐)。
+        run: pip install -e .
       - name: Run test suite
         run: python run_tests.py
