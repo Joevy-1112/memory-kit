@@ -2,6 +2,12 @@
 
 > **状态：Prototype / Alpha** —— 核心功能可用，API 仍可能调整。适合个人 agent 和小型原型项目。
 
+> **借鉴声明（2026-08-08）**：本项目的 freshness 活验证、遗忘治理（审计/回滚）、
+> 常驻提炼等设计契约受 [scope-recall](https://github.com/410979729/scope-recall-hermes)
+> （MIT）启发——**借鉴的是契约语义，实现是独立自研**（含 scope-recall 没有的
+> correction 闭环 / 记忆衰减 / 遮蔽 overlay / 指针链）。逐条借鉴记录见
+> `design-notes/scope-recall-borrowing.md`。
+
 给 AI agent 用的**轻量本地记忆库**：SQLite 存储，可检索、可过期、可纠正。
 不依赖任何 agent 框架，`pip install` 即可接入。
 
