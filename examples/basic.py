@@ -8,11 +8,13 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from memorykit import MemoryDB, detect_correction
+from memorykit.render import render_memory_lines   # 渲染 helper：检索结果带时间标注
 
 db = MemoryDB(db_path="/tmp/memory_kit_basic_demo.db")   # 1. 建库
 r = db.learn("显卡价格是550块，显存12G", source="task")   # 2. 写入（自动分类/锚定/去重）
 hits = db.search_multi("显卡", limit=3)                  # 3. 检索
 print("命中:", [(h["key"], h["content"]) for h in hits])
+print("渲染:", render_memory_lines(hits))                # 3.5 渲染（带【日期 记录】标注）
 sig = detect_correction("不对，应该是550块")              # 4. 纠正信号（规则层，零网络）
 if sig:
     db.correction(r["key"], signal=sig["signal"])        #    标记 disputed + 降置信

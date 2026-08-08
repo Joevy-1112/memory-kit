@@ -250,3 +250,24 @@ P1 local-hash 兜底（embedder.py 加 LocalHashEmbedder，~40 行 drop-in）
 ### 下一步
 P1 渲染标注（render_memory_lines 纯函数 helper，一行接入示例）
 → P1 drain_journal → P1 forgetting 壳
+
+## 2026-08-08 — 渲染侧时间标注（P1 #3，防时态污染）
+
+### 状态
+✅ P1 #3 完成（design-notes §3 全落地）：206 项测试 = 198 旧 + 8 新，零回归
+（新增 render 8 项，未碰库状态——纯函数模块）。
+
+### 设计（零新数据、只加表现层）
+- **`memorykit/render.py`**：`render_memory_lines(items, *, max_chars=600,
+  stamp=True)` 纯函数——检索结果 dict 列表 → prompt 行
+  `- [key] content【YYYY-MM-DD 记录】`：
+  - 时间标注取 `event_time` 优先、`updated_at` 兜底（日期部分 YYYY-MM-DD）
+  - stamp=False 关闭（调用方按场景选：当前会话引用不需要时间边界）
+  - 内容换行压单行（prompt 行约束）；max_chars 按条目边界截断
+  - 畸形/缺失时间字段 → 不崩、无标注
+- **与护城河一致**：标注让模型更可能触发 correction 闭环（看出时间矛盾才
+  会质疑），而不是让错/旧信息悄悄通过。
+- examples/basic.py 加一行用法（渲染带标注的检索结果）。
+
+### 下一步
+P1 drain_journal（常驻提炼，依赖指针链地基）→ P1 forgetting 壳

@@ -412,3 +412,16 @@ correction 闭环仍是我们的护城河。
   相似度/degraded 降级/关闭开关/stats 暴露/降级下 learn→search 闭环）；
   全量 206 项 = 1 既有 live llama.cpp 失败项（环境项，与本次无关）
 - 详细记录见 `project-log.md`（2026-08-08 条目）
+
+### 2026-08-08 迭代追加（渲染侧时间标注 / 防时态污染）
+
+- **`memorykit/render.py`**：`render_memory_lines(items, *, max_chars=600,
+  stamp=True)` 纯函数渲染 helper——检索结果 → prompt 行
+  `- [key] content【YYYY-MM-DD 记录】`，标注取 event_time 优先、updated_at
+  兜底；`stamp=False` 关闭标注；内容换行压单行；max_chars 截断。
+  **修工程漏洞 2**：event_time 此前只做检索侧偏置，渲染侧不带时间标注——
+  现在记忆进上下文带时间边界，模型能判断新旧，过期信息不再被当新鲜事实
+  （看出时间矛盾才会触发 correction 闭环质疑）。
+- **测试**：`tests/test_render.py` 8 项（标注优先/兜底/关闭/换行/截断/无时间/
+  畸形时间/多条目）；全量 206 项 = 1 既有 live llama.cpp 失败项。
+- examples/basic.py 已加一行用法。详细记录见 `project-log.md`。
