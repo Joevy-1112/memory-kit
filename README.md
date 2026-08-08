@@ -8,6 +8,9 @@
 > correction 闭环 / 记忆衰减 / 遮蔽 overlay / 指针链）。逐条借鉴记录见
 > `design-notes/scope-recall-borrowing.md`。
 
+> **📜 更新日志**：迭代记录追加在文档下方（`2026-08-08` 起按日追加，不覆盖历史）；
+> 详细设计/踩坑/决策见 `project-log.md`，版本号见 pyproject.toml（当前 v1.2.0）。
+
 给 AI agent 用的**轻量本地记忆库**：SQLite 存储，可检索、可过期、可纠正。
 不依赖任何 agent 框架，`pip install` 即可接入。
 

@@ -381,3 +381,22 @@ live 服务失败，各轮 project-log 都写"既有环境项，与本次无关"
 
 ### 剩余（记录在案，不再本轮处理）
 - freshness 真正自动化（后台调度器）——需要外部 cron/调度接入，非库内职责
+
+## 2026-08-08 — review 打磨轮 v2（版本 bump / 统计命名 / 文档入口）
+
+### 审查发现（自审第二轮）
+1. **版本未 bump**：v1.1.0 后一天加了 6 大功能（指针链/freshness/渲染/
+   local-hash/drain/forgetting），版本还停在 1.1.0——版本纪律缺失。
+2. **fresh_changed 命名误导**：实际统计的是"状态已定"的行（expired/stale/
+   current 且有活验证时间戳），不是"本次发生变化"——改名 fresh_resolved
+   并注释语义。
+3. **README 无更新入口**：08-08 迭代章节已 8 个，新读者找不到入口——
+   顶部加"📜 更新日志"指引。
+
+### 修复
+- pyproject.toml + __init__.py：1.1.0 → **1.2.0**
+- verify_batch 统计字段 fresh_changed → fresh_resolved（+ 语义注释）
+- README 顶部加更新日志指引
+
+### 状态
+✅ v1.2.0，229 项测试全绿（本轮改动不碰逻辑路径，仅统计命名/版本/文档）。

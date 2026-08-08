@@ -1018,7 +1018,7 @@ class MemoryLifecycle:
 
         stats = {"total": len(rows), "verified": 0, "degraded": 0,
                  "unverifiable": 0, "errors": 0, "avg_score": 0.0,
-                 "fresh_checked": 0, "fresh_changed": 0}
+                 "fresh_checked": 0, "fresh_resolved": 0}
         scores = []
 
         for i, r in enumerate(rows):
@@ -1032,13 +1032,15 @@ class MemoryLifecycle:
                 elif res.get("verification") == "verified":
                     stats["verified"] += 1
                 # freshness 统计（2026-08-08 自审 P1-1：批量扫描时顺带报
-                # freshness 处理量——过期判定/活验证随 verify 执行）
+                # freshness 处理量——过期判定/活验证随 verify 执行。
+                # fresh_checked=有 fresh 配置的行；fresh_resolved=状态已定
+                # （expired/stale/current 且有活验证时间戳）的行）
                 f = res.get("fresh")
                 if f:
                     stats["fresh_checked"] += 1
                     if f.get("status") in ("expired", "stale", "current") \
                             and f.get("last_checked_at"):
-                        stats["fresh_changed"] += 1
+                        stats["fresh_resolved"] += 1
                 if res.get("score", 0) > 0:
                     scores.append(res["score"])
                 elif res.get("ok"):
