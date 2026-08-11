@@ -454,6 +454,23 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         else:
             self._conn.commit()
 
+    def rollback_pending(self) -> None:
+        """清掉连接上悬挂的未提交写事务（若有）。
+
+        移植自 Hermes 生产脚本 ~/.hermes/scripts/memory_db.py（2026-08-11，
+        记忆插件统一到 memory-kit 单源）。Hermes memory 插件不再直接摸
+        db._conn，统一走本方法清理悬挂写事务。sqlite3 在 DML 前隐式
+        BEGIN——「第一次写成功之后、commit 之前」抛异常会让写事务悬挂在
+        连接上、长期持有 WAL 写锁，外部进程全部报 database is locked。
+        in_transaction 只在写事务打开时为 True，空读路径调用零开销；
+        空事务 rollback 是 no-op。
+        """
+        try:
+            if self._conn.in_transaction:
+                self._conn.rollback()
+        except Exception:
+            pass
+
     # ── Work Log ───────────────────────────────────────────────────────────
 
     def log_work(self, session_id: str, action: str, target: str = "",
@@ -688,8 +705,20 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
 
     def get(self, key: str) -> dict | None:
         """Get a single entry by key. Updates accessed_at."""
-        self._conn.execute("UPDATE memories SET accessed_at=datetime('now') WHERE key=?", (key,))
+        self._conn.execute("UPDATE memories SET accessed_at=datetime('now', 'localtime') WHERE key=?", (key,))
         self._conn.commit()
+        row = self._conn.execute("SELECT * FROM memories WHERE key=?", (key,)).fetchone()
+        return dict(row) if row else None
+
+    def peek(self, key: str) -> dict | None:
+        """纯读 get：不更新 accessed_at，不触发写路径。
+
+        移植自 Hermes 生产脚本 ~/.hermes/scripts/memory_db.py（2026-08-11，
+        记忆插件统一到 memory-kit 单源）。Hermes memory 插件 prefetch 读路径
+        （如 session/last_turn 时间戳）需要读取但不该写库——get() 会 UPDATE
+        accessed_at + commit，在每轮 prefetch 里调用等于给纯读路径埋写。
+        读操作语义与 get() 完全一致（SELECT * ... WHERE key=?）。
+        """
         row = self._conn.execute("SELECT * FROM memories WHERE key=?", (key,)).fetchone()
         return dict(row) if row else None
 
@@ -909,6 +938,25 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                 pass  # 旧库无 correction_log 表 → 跳过审计，不阻塞
         return {"ok": True, "key": key, "old_conf": adj[0], "new_conf": adj[1],
                 "delta": round(adj[1] - adj[0], 4), "mode": mode}
+
+    def recent_reinforce_count(self, memory_key: str, seconds: int = 86400) -> int:
+        """correction_log 里某记忆最近 N 秒内的 reinforce 记录数。
+
+        移植自 Hermes 生产脚本 ~/.hermes/scripts/memory_db.py（2026-08-11，
+        记忆插件统一到 memory-kit 单源）。Hermes memory 插件的 implicit
+        强化限频（24h 内只强化一次防刷分）原直查 db._conn，现收敛为本
+        公开方法。表不存在时返回 0（不拦截强化）。
+        """
+        try:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS n FROM correction_log "
+                "WHERE memory_key=? AND action LIKE 'reinforce%' "
+                "AND created_at > datetime('now', ?)",
+                (memory_key, f"-{int(seconds)} seconds")
+            ).fetchone()
+            return int(row["n"]) if row else 0
+        except Exception:
+            return 0
 
     def verify_recent(self, limit: int = 50) -> dict:
         """交叉验证最近未验证的记忆。

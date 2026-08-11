@@ -422,3 +422,54 @@ ci.yml 的 Install dependencies 改为 `pip install -e .`——装项目自身�
 - 提交前若 CI 存在, 检查"本地 venv 依赖 ≠ CI 依赖"的漂移(本地 jieba 装过,
   CI 没装 → 本地全绿 CI 红)
 - run_tests.py 在本地全绿 ≠ 仓库可 CI——用干净 venv 复现 CI 路径再推
+
+## 2026-08-11 — 时态污染真实案例 #2（注入层"快照当对话"变体）
+
+### 现象（Joe 指出）
+08-10 深夜会话（id=20260810_202222_c62fb36d, msg 202784）：用户只发"诡异"两个字，
+回复却开头接住"那个 heartbeat 调 token 的——确实诡异"——**heartbeat 调 token
+这个话题用户根本没在当轮说过**。
+
+### 根因（与案例 #1 不同源）
+- 案例 #1（08-10, P40 回复）：**旧条目污染**——0718 旧条目("sxm2 v100 550")
+  未标 superseded，被检索注入，模型当"当前计划"自信输出。
+- 案例 #2（08-11, 本案例）：**快照当对话**——memory-context 的 System note 里
+  带时间戳的历史快照（[sync] 协议条目、最近工作记录）被模型当成"用户刚说的话"，
+  于是回复接住了一个本轮不存在的话题（heartbeat/可复述语言），且推理看起来
+  完全自洽——**污染内容自洽时最危险**。
+
+### 教训（检索侧 → 渲染侧之外，还要"来源隔离"）
+1. 注入层必须显式标记来源边界："【历史快照, 非当前消息】"——让模型能区分
+   "记忆背景" 与 "用户本轮输入"，而不是把两者当同质上下文。
+2. 模型侧防御：回复若引用"用户没在当前轮说过"的具体话题，应视为可疑——
+   置信度与依据脱节时主动降级/标注来源，而不是顺着接。
+3. 与案例 #1 合并结论：时态污染的完整防线 = 写入侧矛盾检测（P0 候选）+
+   检索侧来源隔离 + 渲染侧时间标注（P1 #3 已落地）+ 模型侧"接陌生话题先
+   确认"的纪律。
+
+## 2026-08-11 — Hermes 记忆插件统一到本库单源（memory_db.py 双轨退役）
+
+### 背景
+生产 `~/.hermes/scripts/memory_db.py`（Hermes 专用）与本库（AGPL 开源母）同源分裂、
+各自演进（能力漂移，见 08-07 记录）。Joe 拍板统一到本库单源，`memory_db.py` 退役。
+
+### 本次改动
+- 移植 3 个 Hermes 专用方法进 `memorykit/db.py`（注释注明来源/日期）：
+  - `rollback_pending()` — 清悬挂写事务（WAL 写锁防护，插件统一调用入口）
+  - `peek(key)` — 纯读 get（不更新 accessed_at，prefetch 读路径专用）
+  - `recent_reinforce_count(key, seconds)` — correction_log 强化限频计数
+- 顺带修复 `get()` 的 accessed_at 写 UTC（`datetime('now')` → `'localtime'`，
+  与 08-07 时区纪律对齐；生产版早已是 localtime）
+- 新增 `tests/test_hermes_port.py`（10 测试：三方法全路径）
+- hermes-local 插件 `_get_db` 改 `from memorykit import MemoryDB`（sys.path
+  显式加 /home/joe/memory-kit），db_path 显式传 `~/.hermes/memory.db`
+  （本库默认是 cwd/memory.db，不传会连错库）；memory-kit 不可达时回退
+  memory_db.py（笔电等未部署端不硬断）
+
+### 验证
+- 全量 239 测试全绿（229 旧 + 10 新，skipped=2；repo venv 含 jieba）
+- 真实库副本（SQLite backup API）冒烟：COUNT 963=963 不变、_migrate_columns
+  补 4 列（event_time/sparse/source_session_id/source_msg_id）+ governance
+  表、search_multi/peek/recent_work/search_semantic/移植方法全部可用
+- 插件模块在 hermes venv 下导入 OK、db_path 解析正确
+- 真实 memory.db 未改动（仅在副本上验证；迁移在 gateway 重启后自然发生）
