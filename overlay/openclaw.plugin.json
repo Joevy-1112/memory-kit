@@ -1,0 +1,31 @@
+{
+  "id": "memorykit-overlay",
+  "name": "MemoryKit Overlay",
+  "description": "Memory-overlay 记忆系统：learn 写入 / search 多路检索 / correct 纠正锚定 / overlay 遮蔽回溯 / episodic 时间索引 / knowledge 知识层。state.db 原文永不删，memory 是上层影子。自动接线：before_prompt_build 注入相关记忆 + agent_end 自动 learn。",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "hook"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "mk_learn",
+      "mk_search",
+      "mk_get",
+      "mk_correct",
+      "mk_reinforce",
+      "mk_verify",
+      "mk_overlay",
+      "mk_episodic",
+      "mk_knowledge",
+      "mk_stats"
+    ]
+  }
+}

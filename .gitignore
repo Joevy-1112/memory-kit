@@ -9,3 +9,10 @@ venv/
 *.db-wal
 *.db-shm
 .pytest_cache/
+
+# overlay 插件子库(node_modules / 本地实验数据不推)
+overlay/node_modules/
+overlay/benchdata/
+overlay/dist_bak_*/
+overlay/bench_*.py
+overlay/probe-*.mjs
