@@ -37,6 +37,11 @@ from .validator import normalize_validator_type
 
 logger = logging.getLogger(__name__)
 
+# episodic 遮蔽窗全局 GC 宽限(分钟): 最后活动超 gap_minutes+此值 的开放窗
+# 视为僵尸, 任意 checkin 时回收并盖"超窗自动关闭"戳。单一来源见
+# episodic_checkin docstring(2026-08-15 小龙虾建议)。
+EPISODIC_GC_GRACE_MIN = 5
+
 
 EMBEDDING_URL = os.environ.get("MEMORY_EMBED_URL", "http://127.0.0.1:8082")
 
@@ -150,7 +155,8 @@ CREATE TABLE IF NOT EXISTS episodic (
     ended_at     TEXT DEFAULT NULL,
     session_id_ref TEXT DEFAULT '',
     source       TEXT DEFAULT '',
-    importance   REAL DEFAULT 0.5
+    importance   REAL DEFAULT 0.5,
+    last_activity_at TEXT DEFAULT NULL
 );
 
 -- 知识图谱：可复用的经验精华
@@ -394,6 +400,10 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             "ALTER TABLE knowledge_nodes ADD COLUMN access_count INTEGER DEFAULT 0",
             "ALTER TABLE knowledge_nodes ADD COLUMN last_accessed TEXT DEFAULT NULL",
         ])
+        # Episodic extensions（遮蔽时间窗: last_activity_at 记录续窗心跳, 用于 gap 判定）
+        self._migrate_columns("episodic", [
+            "ALTER TABLE episodic ADD COLUMN last_activity_at TEXT DEFAULT NULL",
+        ])
         # Create entity_links table (idempotent via IF NOT EXISTS)
         self._conn.executescript("""
             CREATE TABLE IF NOT EXISTS entity_links (
@@ -559,6 +569,7 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             vector: list = None, water: int = 2,
             event_time: str = None, sparse: dict = None,
             source_session_id: str = None, source_msg_id: str = None,
+            source_message_ids=None, raw_excerpt: str = None,
             validator: dict = None) -> int:
         """Insert or replace a memory entry. Optionally computes embedding. Returns row id.
         
@@ -567,6 +578,11 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         source_session_id / source_msg_id: state→learn 派生链指针（P0 #1）——
         learn() 提炼来源（state.db 的 session id + messages.id）透传写入；
         默认 None → 存 NULL，完全向后兼容（旧调用方不传不炸）。
+
+        source_message_ids / raw_excerpt: 遮蔽机制原文指针（2026-08-14 研究线
+        十一）——该轮消息 id 列表（JSON 数组字符串，state.db messages.id）+ 原文
+        摘录，实现可溯性。默认 None → 不覆盖旧值（COALESCE 语义，与
+        source_session_id 一致：merge 追加、不写空）。
 
         event_time: 事件发生时间（'YYYY-MM-DD[ HH:MM:SS]'），v2 检索元数据——
         仅用于搜索时间偏置（recency/时间窗口），不参与 TTL/遗忘状态机/去重年龄判断。
@@ -654,13 +670,33 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         # 同 key 重写是"内容更新"而非"重新学习"，与 learn() 合并语义对齐——
         # confidence 和 verification_status 保留旧值，不重置为 pending/默认值，
         # 否则验证过的高置信度记忆会被一次普通 set() 打回原形。
+        # ── 原文指针归一化（遮蔽机制, 2026-08-14）──
+        # source_message_ids: list[int] → JSON 数组字符串; 标量 → 原样转 str。
+        # 统一按 JSON 数组存（search.py _parse_message_ids 两种格式都兼容）。
+        if source_message_ids is not None:
+            if isinstance(source_message_ids, str):
+                try:
+                    json.loads(source_message_ids)  # 已是合法 JSON → 原样
+                except (json.JSONDecodeError, TypeError):
+                    # 逗号分隔/裸 id → 包成数组
+                    ids = [x.strip() for x in str(source_message_ids).split(",") if x.strip()]
+                    source_message_ids = json.dumps(ids, ensure_ascii=False)
+            elif isinstance(source_message_ids, (list, tuple)):
+                ids = [str(x) for x in source_message_ids]
+                source_message_ids = json.dumps(ids, ensure_ascii=False)
+            else:
+                source_message_ids = json.dumps([str(source_message_ids)], ensure_ascii=False)
+        # raw_excerpt: 截断到 800 字（防肥字段）
+        if raw_excerpt is not None:
+            raw_excerpt = str(raw_excerpt)[:800]
+
         self._conn.execute("""
             INSERT INTO memories(key, content, category, tags, scope, importance, ttl,
                 created_at, updated_at, accessed_at, event_time,
                 vector, sparse, vector_bin, agent_id, source_session, decay_profile,
                 provenance, entities, water, confidence, verification_status,
-                source_session_id, source_msg_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source_session_id, source_msg_id, source_message_ids, raw_excerpt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
                 content=excluded.content,
                 category=excluded.category,
@@ -676,6 +712,10 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                 source_session=excluded.source_session,
                 source_session_id=COALESCE(excluded.source_session_id, memories.source_session_id),
                 source_msg_id=COALESCE(excluded.source_msg_id, memories.source_msg_id),
+                source_message_ids=CASE WHEN excluded.source_message_ids IS NULL
+                    THEN memories.source_message_ids ELSE excluded.source_message_ids END,
+                raw_excerpt=CASE WHEN excluded.raw_excerpt IS NULL
+                    THEN memories.raw_excerpt ELSE excluded.raw_excerpt END,
                 decay_profile=excluded.decay_profile,
                 provenance=excluded.provenance,
                 water=excluded.water,
@@ -685,7 +725,7 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         """, (key, content, category, tags, scope, importance, ttl, now, now, now, event_time,
               vec_json, sparse_json, vec_bin, agent_id, source_session, decay_profile,
               provenance_final, entities_json, water, confidence, "pending",
-              source_session_id, source_msg_id))
+              source_session_id, source_msg_id, source_message_ids, raw_excerpt))
         self._conn.commit()
         row = self._conn.execute("SELECT id FROM memories WHERE key=?", (key,)).fetchone()
         rid = row["id"] if row else -1
@@ -1521,8 +1561,35 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         self._conn.commit()
         return cur.rowcount > 0
 
+    def _gc_stale_windows(self, now=None, gap_minutes: int = 30) -> int:
+        """回收跨 ref 僵尸开放窗(幂等, 2026-08-15 小龙虾建议)。
+
+        checkin(事件驱动)和 list/window/get(查询时惰性兜底)都调用——
+        纯事件驱动有盲区: 一段时间没人说话时 GC 不跑, 僵尸窗永远开着。
+        最后活动超 gap_minutes+EPISODIC_GC_GRACE_MIN 的开放窗一律关
+        并盖"超窗自动关闭,无摘要"戳(NOT LIKE 防重复盖)。返回关闭数。
+        ⚠️ 不能用 SQLite datetime('now')(UTC, 本地 +8 差 8h),
+        用 Python 算 cutoff 传参。
+        """
+        from datetime import datetime, timedelta
+        now = self._parse_ts(now) or datetime.now()
+        now_s = now.strftime("%Y-%m-%d %H:%M:%S")
+        _grace = int((gap_minutes + EPISODIC_GC_GRACE_MIN) * 60)
+        _cutoff = (now - timedelta(seconds=_grace)).strftime("%Y-%m-%d %H:%M:%S")
+        cur = self._conn.execute(
+            "UPDATE episodic SET ended_at=?, "
+            "summary=CASE WHEN summary='' OR summary IS NULL "
+            "THEN '超窗自动关闭,无摘要' ELSE summary END "
+            "WHERE ended_at IS NULL "
+            "AND COALESCE(last_activity_at, started_at) < ? "
+            "AND summary NOT LIKE '超窗自动关闭%'",
+            (now_s, _cutoff))
+        self._conn.commit()
+        return cur.rowcount
+
     def episodic_list(self, limit: int = 10) -> list[dict]:
         """Return recent episodes sorted by started_at desc."""
+        self._gc_stale_windows()  # 惰性兜底(2026-08-15): 查询时顺带回收僵尸窗
         rows = self._conn.execute("""
             SELECT * FROM episodic
             ORDER BY started_at DESC
@@ -1531,11 +1598,15 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         return [dict(r) for r in rows]
 
     def episodic_get(self, session_id: str) -> dict | None:
-        """Get a specific episode by session_id."""
-        key = f"episodic/{session_id[:16]}"
+        """Get a specific episode by session_id.
+
+        （2026-08-15 收敛: 原按 legacy key episodic/<sid16> 查, learn 改用
+        checkin 时间窗行后查不到; 改按 session_id_ref 查最新窗。）
+        """
         row = self._conn.execute(
-            "SELECT * FROM episodic WHERE key=?", (key,)
-        ).fetchone()
+            "SELECT * FROM episodic WHERE session_id_ref=? "
+            "ORDER BY started_at DESC LIMIT 1",
+            (session_id,)).fetchone()
         return dict(row) if row else None
 
     def episodic_search(self, query: str, limit: int = 5) -> list[dict]:
@@ -1557,6 +1628,208 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         cur = self._conn.execute("DELETE FROM episodic WHERE key=?", (key,))
         self._conn.commit()
         return cur.rowcount > 0
+
+    # ── 遮蔽时间窗 (Occlusion Windows, 2026-08-14 研究线十一) ─────────────
+    # 读写分离: 写(蒸馏)=异步(对话间隙/agent_end), 读(遮蔽)=同步查标记跳窗口。
+    # 时间窗粒度: 会话粒度 + 对话间隙 >30 分钟算新窗(episodic_checkin 心跳)。
+
+    @staticmethod
+    def _parse_ts(value):
+        """'YYYY-MM-DD HH:MM:SS' | epoch float → datetime；解析失败返回 None。"""
+        from datetime import datetime
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(float(value))
+        s = str(value).strip()
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(s[:19].strip(), fmt)
+            except ValueError:
+                continue
+        return None
+
+    def _fmt_dt(self, value):
+        dt = self._parse_ts(value)
+        return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else None
+
+    def episodic_checkin(self, session_id: str, now=None, gap_minutes: int = 30,
+                         source: str = "openclaw") -> dict:
+        """时间窗心跳：会话粒度 + 对话间隙 > gap_minutes 算新窗。
+
+        每次 agent_end / 会话结束时调用。自动维护该 session 的开放窗：
+        - 无开放窗 → 开新窗(action=started)
+        - 有开放窗且距上次活动 ≤ gap → 续窗, ended_at 刷新(action=extended)
+        - 有开放窗且距上次活动 > gap → 关旧窗 + 开新窗(action=rotated)
+
+        全局 GC（2026-08-15 小龙虾建议）：任意 checkin 时扫全库, 回收
+        "跨 ref 僵尸开放窗"——最后活动超过 gap_minutes+GC_GRACE 的一律关
+        并盖"超窗自动关闭,无摘要"戳。阈值单一来源: gap_minutes(旋转) +
+        EPISODIC_GC_GRACE_MIN(宽限), 调参只动这两处。
+
+        返回 dict：{action, key, session_id_ref, started_at, ended_at, gap_minutes}。
+        纯写路径, ms 级；失败返回 {action: 'error'} 不抛异常。
+        """
+        from datetime import datetime, timedelta
+        now = self._parse_ts(now) or datetime.now()
+        now_s = now.strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            self._gc_stale_windows(now=now, gap_minutes=gap_minutes)
+            # 找该 session 最新开放窗（ended_at IS NULL）
+            rotated = False
+            row = self._conn.execute(
+                "SELECT * FROM episodic WHERE session_id_ref=? AND ended_at IS NULL "
+                "ORDER BY started_at DESC LIMIT 1", (session_id,)).fetchone()
+            if row is not None:
+                # 活动时间优先级: last_activity_at(续窗心跳) > ended_at > started_at
+                last_act = (self._parse_ts(row["last_activity_at"])
+                            or self._parse_ts(row["ended_at"])
+                            or self._parse_ts(row["started_at"]))
+                if last_act is not None:
+                    gap_min = (now - last_act).total_seconds() / 60.0
+                    if gap_min <= gap_minutes:
+                        # 续窗：刷新 last_activity_at（窗口仍开放, ended_at 保持 NULL）
+                        self._conn.execute(
+                            "UPDATE episodic SET last_activity_at=? WHERE key=?",
+                            (now_s, row["key"]))
+                        self._conn.commit()
+                        return {"action": "extended", "key": row["key"],
+                                "session_id_ref": session_id,
+                                "started_at": row["started_at"], "ended_at": row["ended_at"] or "",
+                                "gap_minutes": round(gap_min, 1)}
+                # 超窗 → 关旧窗（ended_at = 旋转发生的当前时间；原实现取
+                # row["started_at"] 导致零时长窗, 2026-08-15 小龙虾实测抓出）
+                # 2026-08-15 fix2: 关该 session 全部开放窗(不只最新)——兼容
+                # legacy key(episodic/<sid16>) + 新时间戳 key 并存, 防僵尸窗
+                rotated = True
+                cur = self._conn.execute(
+                    "UPDATE episodic SET ended_at=?, "
+                    "summary=CASE WHEN summary='' OR summary IS NULL "
+                    "THEN '超窗自动关闭,无摘要' ELSE summary END "
+                    "WHERE session_id_ref=? AND ended_at IS NULL",
+                    (now_s, session_id))
+                self._conn.commit()
+                if cur.rowcount == 0:
+                    # 没有可关的开放窗(异常态), 标记非旋转, 走开新窗
+                    rotated = False
+            # 开新窗：key 带时间戳+毫秒(防同秒冲突), ended_at=NULL=开放窗
+            key = f"episodic/{str(session_id)[:20]}_{now:%Y%m%d_%H%M%S}_{now.microsecond//1000:03d}"
+            name = f"Session {session_id}"
+            self._conn.execute(
+                "INSERT INTO episodic(key, title, started_at, ended_at, session_id_ref, source, last_activity_at) "
+                "VALUES (?, ?, ?, NULL, ?, ?, ?)",
+                (key, name, now_s, session_id, source, now_s))
+            self._conn.commit()
+            return {"action": "rotated" if rotated else "started", "key": key,
+                    "session_id_ref": session_id,
+                    "started_at": now_s, "ended_at": now_s, "gap_minutes": 0}
+        except Exception:
+            logger.exception("[episodic_checkin] failed for session=%s", session_id)
+            return {"action": "error"}
+
+    def episodic_close(self, session_id: str, summary: str = "",
+                       key_decisions: str = "", tags: str = "",
+                       outcome: str = "", pending_items: str = "") -> bool:
+        """关闭该 session 最新开放窗（按时间窗语义, 不依赖固定 key）。
+
+        episodic_end 是固定 key 版本（向后兼容）；本方法按
+        session_id_ref + ended_at IS NULL 定位最新开放窗, 支持多窗。
+        """
+        from datetime import datetime
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            row = self._conn.execute(
+                "SELECT key, last_activity_at FROM episodic WHERE session_id_ref=? AND ended_at IS NULL "
+                "ORDER BY started_at DESC LIMIT 1", (session_id,)).fetchone()
+            if row is None:
+                return False
+            # 关窗时间: 最后活动心跳优先(比 now 更真实), 否则当前时间
+            end_ts = row["last_activity_at"] or now
+            cur = self._conn.execute("""
+                UPDATE episodic SET ended_at=?, summary=?, tags=?, key_decisions=?,
+                    outcome=?, pending_items=?, importance=0.7
+                WHERE key=?
+            """, (end_ts, summary, tags, key_decisions, outcome, pending_items, row["key"]))
+            self._conn.commit()
+            return cur.rowcount > 0
+        except Exception:
+            logger.exception("[episodic_close] failed for session=%s", session_id)
+            return False
+
+    def episodic_cleanup_legacy(self) -> int:
+        """标记历史 legacy key 行(episodic/<sid16> 截断格式, 2026-08-15)。
+
+        小龙虾建议: 旧格式行还躺在库里, 新代码已不写它们。不删除
+        (state.db/原文永不删铁律), 给 summary 加 [legacy] 前缀让查询端
+        明确识别。判定: key == 'episodic/' || session_id_ref[:16]
+        (legacy 是 session 前16位截断; 新时间窗格式带额外时间戳, 不匹配)。
+        返回标记数。幂等(已带前缀的不重复标)。
+        """
+        cur = self._conn.execute(
+            "UPDATE episodic SET summary='[legacy] ' || summary "
+            "WHERE key = 'episodic/' || substr(session_id_ref, 1, 16) "
+            "AND summary NOT LIKE '[legacy]%'")
+        self._conn.commit()
+        return cur.rowcount
+
+    def episodic_window(self, start=None, end=None, limit: int = 50) -> list[dict]:
+        """遮蔽查询：给定时间范围, 返回被遮蔽的 episodic 摘要列表。
+
+        语义：时间窗 [start, end] 与该段 episodic 的生命周期
+        [started_at, ended_at] 有重叠即命中（遮蔽段覆盖了该时间窗）。
+        - start/end 可传 'YYYY-MM-DD[ HH:MM[:SS]]' 或 epoch 秒或 datetime。
+        - 未传 end → 只按 started_at >= start 过滤。
+        - 返回每条附渲染字段 render（日期前置 [YYYY-MM-DD HH:MM-HH:MM] 摘要）。
+        读路径, 同步, ms 级 —— 遮蔽=渲染管线同步过滤。
+        """
+        self._gc_stale_windows()  # 惰性兜底(2026-08-15)
+        from datetime import datetime
+        if isinstance(start, (int, float)):
+            start = datetime.fromtimestamp(float(start)).strftime("%Y-%m-%d %H:%M:%S")
+        elif start is not None:
+            s = self._parse_ts(start)
+            start = s.strftime("%Y-%m-%d %H:%M:%S") if s else str(start)
+        if isinstance(end, (int, float)):
+            end = datetime.fromtimestamp(float(end)).strftime("%Y-%m-%d %H:%M:%S")
+        elif end is not None:
+            e = self._parse_ts(end)
+            end = e.strftime("%Y-%m-%d %H:%M:%S") if e else str(end)
+        sql = "SELECT * FROM episodic WHERE 1=1"
+        args = []
+        if start and end:
+            sql += (" AND started_at <= ? AND (ended_at IS NULL OR ended_at >= ?)")
+            args += [end, start]
+        elif start:
+            sql += " AND started_at >= ?"
+            args.append(start)
+        elif end:
+            sql += " AND started_at <= ?"
+            args.append(end)
+        sql += " ORDER BY started_at DESC LIMIT ?"
+        args.append(int(limit))
+        rows = self._conn.execute(sql, args).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["render"] = self.episodic_render(d)
+            out.append(d)
+        return out
+
+    @staticmethod
+    def episodic_render(ep: dict) -> str:
+        """日期前置渲染：[YYYY-MM-DD HH:MM-HH:MM] 摘要（研究线十一 方案B）。
+
+        未结束窗显示到当前时刻语义的 started 时刻；摘要为空时退回 title。
+        """
+        from datetime import datetime
+        st = MemoryDB._parse_ts(ep.get("started_at"))
+        et = MemoryDB._parse_ts(ep.get("ended_at"))
+        if st is None:
+            return (ep.get("summary") or ep.get("title") or "").strip()
+        start_s = st.strftime("%Y-%m-%d %H:%M")
+        end_s = et.strftime("%H:%M") if et else start_s.split(" ")[1]
+        body = (ep.get("summary") or ep.get("title") or "").strip()
+        return f"[{start_s}-{end_s}] {body}"
 
     # ── 实体提取 ──────────────────────────────────────────────────────────
 

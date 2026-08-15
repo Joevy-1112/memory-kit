@@ -1153,6 +1153,7 @@ class MemoryLifecycle:
               precomputed_sparse=_NO_PRECOMPUTED_SPARSE,
               auto_verify: bool = True,
               source_session_id=None, source_msg_id=None,
+              source_message_ids=None, raw_excerpt=None,
               validator=None):
         """自动学习：评分分类+语义去重+原话保留+session关联。
 
@@ -1263,20 +1264,29 @@ class MemoryLifecycle:
         def _episodic_touch():
             """source_session 存在时确保 episodic 索引有记录（幂等）。
 
-            episodic_start 用 INSERT OR IGNORE（同一 session 不重复建行）；
-            episodic_end 轻量更新 summary/tags/outcome，让最新学到内容可被
-            episodic_search 检索。辅助索引失败不影响 learn 主流程。
+            （2026-08-15 收敛, 小龙虾第三轮反馈）原实现调 episodic_start/end
+            写 legacy key 行(episodic/<sid16>), learn 每次重写 summary/ended_at,
+            成"常青摘要桶"、和遮蔽窗时间窗并行双写打架。现改为:
+            episodic_checkin 心跳(开/续/旋转, 时间窗语义) + learn 摘要沉淀到
+            **当前开放窗**(summary/tags 空才盖, 不覆盖已有关键信息),
+            随窗关闭自然沉淀。辅助索引失败不影响 learn 主流程。
             """
             if not source_session:
                 return
             try:
-                self.episodic_start(source_session, source="learn")
-                self.episodic_end(
-                    source_session,
-                    summary=content[:200],
-                    tags=",".join(sorted(tags))[:200],
-                    outcome="merged" if merged else "learned",
-                )
+                r = self.episodic_checkin(source_session, source="learn")
+                key = r.get("key")
+                if key:
+                    # summary/tags 更新为最新 learn 内容(窗口内最新活动),
+                    # 关窗时定格; importance 只升不降
+                    self._conn.execute(
+                        "UPDATE episodic SET "
+                        "summary=?, tags=?, "
+                        "outcome=?, importance=MAX(importance, 0.7) "
+                        "WHERE key=?",
+                        (content[:200], ",".join(sorted(tags))[:200],
+                         "merged" if merged else "learned", key))
+                    self._conn.commit()
             except Exception:
                 pass
 
@@ -1436,6 +1446,40 @@ class MemoryLifecycle:
                 parts.append(str(new_val))
             return ",".join(parts)
 
+        def _merge_msg_ids(old_json, new_val):
+            """合并 source_message_ids（JSON 数组字符串）: 旧 id ∪ 新 id, 去重保序。
+
+            new_val 为 None/空 → 原样返回旧值（不覆盖, 与 source_msg_id 语义一致）；
+            旧值为空 → 取新值。兼容两种旧格式: JSON 数组字符串 / 逗号分隔。
+            """
+            if new_val is None or new_val == "":
+                return old_json
+            old_ids = []
+            if old_json:
+                try:
+                    parsed = json.loads(old_json)
+                    if isinstance(parsed, list):
+                        old_ids = [str(x) for x in parsed]
+                    else:
+                        old_ids = [str(parsed)]
+                except (json.JSONDecodeError, TypeError):
+                    old_ids = [x.strip() for x in str(old_json).split(",") if x.strip()]
+            if isinstance(new_val, (list, tuple)):
+                new_ids = [str(x) for x in new_val]
+            else:
+                new_ids = [str(x) for x in str(new_val).split(",") if x.strip()]
+            merged = list(old_ids)
+            for nid in new_ids:
+                if nid and nid not in merged:
+                    merged.append(nid)
+            return json.dumps(merged, ensure_ascii=False)
+
+        def _merge_raw_excerpt(old_val, new_val):
+            """raw_excerpt 合并：新摘录非空时取新（最近原文优先）；否则保留旧值。"""
+            if new_val:
+                return str(new_val)[:800]
+            return old_val
+
 
         def _fusion_score(sim, overlap):
             """向量+图解信号融合。乘性boost，Hindsight保守路线。"""
@@ -1562,17 +1606,26 @@ class MemoryLifecycle:
                 entities_json = (json.dumps(merged_entities, ensure_ascii=False)
                                  if merged_entities else None)
 
+                # ── 原文指针合并（遮蔽机制, 2026-08-14）──
+                # 与派生链指针同语义: 旧 id 保留 + 新 id 追加；新摘录优先。
+                merged_msg_ids = _merge_msg_ids(best.get("source_message_ids"),
+                                                source_message_ids)
+                merged_raw_excerpt = _merge_raw_excerpt(best.get("raw_excerpt"),
+                                                        raw_excerpt)
+
                 with self._tx():
                     self._conn.execute("""
                         UPDATE memories SET
                             content=?, importance=?, accessed_at=datetime('now'),
                             updated_at=datetime('now'), source_session=?,
                             tags=?, category=?, entities=?, decay_profile=?, provenance=?,
-                            event_time=?, source_session_id=?, source_msg_id=?
+                            event_time=?, source_session_id=?, source_msg_id=?,
+                            source_message_ids=?, raw_excerpt=?
                         WHERE id=?
                     """, (merged_content, new_imp, merged_sessions, ",".join(merged_tags),
                           category, entities_json, None, new_prov, merged_event_time,
                           merged_src_session_id, merged_src_msg_id,
+                          merged_msg_ids, merged_raw_excerpt,
                           best["id"]))
                 if merged_entities:
                     # 实体关联表同步（与 set() 的 _update_entity_links 对齐）
@@ -1653,17 +1706,26 @@ class MemoryLifecycle:
                 entities_json = (json.dumps(merged_entities, ensure_ascii=False)
                                  if merged_entities else None)
 
+                # ── 原文指针合并（遮蔽机制, 2026-08-14）──
+                # 与派生链指针同语义: 旧 id 保留 + 新 id 追加；新摘录优先。
+                merged_msg_ids = _merge_msg_ids(best.get("source_message_ids"),
+                                                source_message_ids)
+                merged_raw_excerpt = _merge_raw_excerpt(best.get("raw_excerpt"),
+                                                        raw_excerpt)
+
                 with self._tx():
                     self._conn.execute("""
                         UPDATE memories SET
                             content=?, importance=?, accessed_at=datetime('now'),
                             updated_at=datetime('now'), source_session=?,
                             tags=?, category=?, entities=?, decay_profile=?, provenance=?,
-                            event_time=?, source_session_id=?, source_msg_id=?
+                            event_time=?, source_session_id=?, source_msg_id=?,
+                            source_message_ids=?, raw_excerpt=?
                         WHERE id=?
                     """, (merged_content, new_imp, merged_sessions, ",".join(merged_tags),
                           category, entities_json, None, new_prov, merged_event_time,
                           merged_src_session_id, merged_src_msg_id,
+                          merged_msg_ids, merged_raw_excerpt,
                           best["id"]))
                 if merged_entities:
                     try:
@@ -1695,6 +1757,7 @@ class MemoryLifecycle:
                  source_session=source_session,
                  vector=qvec, sparse=qsparse, event_time=event_time,
                  source_session_id=source_session_id, source_msg_id=source_msg_id,
+                 source_message_ids=source_message_ids, raw_excerpt=raw_excerpt,
                  validator=validator)
         # set() 写入的 provenance 含 fresh（若传了 validator）——这里读回补
         # v=pending，不整体覆盖（否则 set 里组装的 fresh 会被抹掉）

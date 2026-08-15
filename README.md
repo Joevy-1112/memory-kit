@@ -155,6 +155,12 @@ elif cmd == "fix":    db.correction(sys.argv[2])
 - **英文语料**：`gate()` 与纠正检测的中文规则扩展为多语言。
 - **规模**：全表扫描改为索引/分片，把实用上限从万条级往上推。
 - **检索透明化**：融合权重的配置入口 + 每个信号的得分明细输出。
+- **实体级时间演化(2026-08-15 Joe 方向, 记忆v3联想边的一部分)**: 同一实体
+  多时期片段(如 E1 盘 08-10 项目库 → 08-14 87%满)目前只是散落条目靠 recency
+  排序, 无实体状态机。目标: 实体=节点(持久身份) + 属性=带时间戳状态
+  (当前值+历史版本), 检索"实体X是什么"返回当前状态+时间线, 写入新片段更新
+  实体属性(旧值进历史不删)。关联记忆v3: 联想边参数化(强度/方向/衰减),
+  实体节点+带时间属性边。与"写入时矛盾检测"(P0)同源——实体属性冲突=检测信号。
 
 ## 测试 / 贡献
 
@@ -193,7 +199,8 @@ CI 用 GitHub Actions（`.github/workflows/ci.yml`）在 Python 3.10/3.11/3.12 �
                      │  ├─ _adjust_confidence 置信度引擎           │
                      │  ├─ correction() / reinforce() 纠错降/升权 │
                      │  ├─ verify_recent 交叉验证（需 state.db）   │
-                     │  └─ knowledge_* 实体/知识关联层             │
+                     │  ├─ knowledge_* 实体/知识关联层             │
+                     │  └─ episodic_* 遮蔽窗(时间索引+GC)          │
                      │        │ 继承                               │
                      │        ▼                                   │
                      │  MemorySearch  (search.py)                 │
@@ -230,6 +237,15 @@ logging）→ `search_multi()` 多路召回 + 加权融合 + 验证状态加权 
 `correction()`（置信 -0.3、置 disputed）或 `reinforce()`（+0.05/+0.15）→ `age()`
 按衰减档把久未访问的记忆从 active 逐步推到 archived。
 
+**遮蔽窗数据流**（时间主索引，原文永不删）：
+```
+对话轮次完成 → sync_turn/agent_end 钩子 → episodic_checkin 心跳(开/续/旋转)
+   → episodic 表时间窗(session_id_ref + started_at/ended_at, 纯指针)
+渲染/压缩时 → episodic_window 查时间窗 → 老窗口折叠为日期前置摘要
+   → 摘要进注入预算(800 token/次), 原文仍在 state.db
+GC → checkin 或 list/window/get 查询时回收超时僵尸窗(盖"超窗自动关闭"戳)
+```
+
 </details>
 
 ## API 速览
@@ -264,10 +280,27 @@ db.verify_batch(limit=100, auto_degrade=True) -> dict
 
 # 其他
 db.stats() / db.cleanup() / db.export(path) / db.import_json(path, merge=True)
-db.episodic_*()     # 会话时间线
+db.episodic_*()     # 会话时间线(遮蔽窗)
 db.knowledge_*()    # 实体/知识关联层
 db.close()
 ```
+
+### episodic 遮蔽窗(2026-08-15 定稿)
+
+会话时间线 = **遮蔽窗**机制:时间窗索引"什么时候发生了什么",原始对话留在 state.db 永不删。
+
+**核心 API**:
+- `episodic_checkin(session_id, gap_minutes=30)` — 心跳:开窗/续窗/超窗旋转(agent_end 或每轮调用)
+- `episodic_close(session_id, summary)` — 关窗+摘要(会话结束)
+- `episodic_window(start, end)` — 遮蔽查询:时间窗重叠命中,返回带日期前置渲染字段
+- `episodic_get(session_id)` / `episodic_list()` / `episodic_search(query)`
+- `episodic_cleanup_legacy()` — 标记历史旧格式行(`key=='episodic/'||sid[:16]`),summary 加 `[legacy]` 前缀,不删除
+
+**生命周期语义**:无开放窗→started;≤gap→extended(刷新 last_activity_at);>gap→rotated(关全部同 session 开放窗 + 开新窗,ended_at=旋转时刻)。关窗摘要为空时盖"超窗自动关闭,无摘要"。
+
+**全局 GC**:任意 checkin 或 list/window/get 查询时,回收最后活动超 `gap_minutes+EPISODIC_GC_GRACE_MIN`(默认 35min)的跨 ref 僵尸开放窗(幂等,防重复盖戳)。⚠️ cutoff 用 Python 本地时间算,SQLite `datetime('now')` 是 UTC。
+
+**阈值单源**:旋转 = `gap_minutes` 参数(默认 30);GC 宽限 = `EPISODIC_GC_GRACE_MIN` 模块常量(5)。
 
 检索排序的验证状态加权（`MemorySearch.VERIFY_WEIGHTS`，乘性系数）：
 
