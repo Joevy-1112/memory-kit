@@ -570,6 +570,7 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             event_time: str = None, sparse: dict = None,
             source_session_id: str = None, source_msg_id: str = None,
             source_message_ids=None, raw_excerpt: str = None,
+            derived_from: str = None,
             validator: dict = None) -> int:
         """Insert or replace a memory entry. Optionally computes embedding. Returns row id.
         
@@ -695,8 +696,9 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                 created_at, updated_at, accessed_at, event_time,
                 vector, sparse, vector_bin, agent_id, source_session, decay_profile,
                 provenance, entities, water, confidence, verification_status,
-                source_session_id, source_msg_id, source_message_ids, raw_excerpt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source_session_id, source_msg_id, source_message_ids, raw_excerpt,
+                derived_from)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
                 content=excluded.content,
                 category=excluded.category,
@@ -716,6 +718,7 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                     THEN memories.source_message_ids ELSE excluded.source_message_ids END,
                 raw_excerpt=CASE WHEN excluded.raw_excerpt IS NULL
                     THEN memories.raw_excerpt ELSE excluded.raw_excerpt END,
+                derived_from=COALESCE(excluded.derived_from, memories.derived_from),
                 decay_profile=excluded.decay_profile,
                 provenance=excluded.provenance,
                 water=excluded.water,
@@ -725,7 +728,8 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         """, (key, content, category, tags, scope, importance, ttl, now, now, now, event_time,
               vec_json, sparse_json, vec_bin, agent_id, source_session, decay_profile,
               provenance_final, entities_json, water, confidence, "pending",
-              source_session_id, source_msg_id, source_message_ids, raw_excerpt))
+              source_session_id, source_msg_id, source_message_ids, raw_excerpt,
+              derived_from))
         self._conn.commit()
         row = self._conn.execute("SELECT id FROM memories WHERE key=?", (key,)).fetchone()
         rid = row["id"] if row else -1

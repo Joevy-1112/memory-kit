@@ -30,6 +30,7 @@ from .gate import (
     detect_correction_layer1,
 )
 from .embedder import Embedder, HTTPEmbedder, embed_text
+from .anchoring import classify_relation, HTTPAnchorLLM, AVAILABLE_RELATIONS
 
 __version__ = "1.2.0"
 
@@ -44,6 +45,9 @@ __all__ = [
     "Embedder",
     "HTTPEmbedder",
     "embed_text",
+    "classify_relation",
+    "HTTPAnchorLLM",
+    "AVAILABLE_RELATIONS",
     "SCHEMA_SQL",
     "DB_PATH",
     "EMBEDDING_URL",

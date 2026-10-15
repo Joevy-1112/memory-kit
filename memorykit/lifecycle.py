@@ -5,6 +5,8 @@ import logging
 import re
 from datetime import datetime, timedelta
 
+from .anchoring import classify_relation
+
 logger = logging.getLogger(__name__)
 
 
@@ -1154,6 +1156,7 @@ class MemoryLifecycle:
               auto_verify: bool = True,
               source_session_id=None, source_msg_id=None,
               source_message_ids=None, raw_excerpt=None,
+              anchor: bool = False, anchor_llm=None, anchor_top_k: int = 3,
               validator=None):
         """自动学习：评分分类+语义去重+原话保留+session关联。
 
@@ -1488,6 +1491,44 @@ class MemoryLifecycle:
                 return min(sim * boost, 1.0)
             return sim
 
+        # ── P1 经验锚定 (2026-08-29): 写入前 top-k 检索相似旧记忆, 标注关系 ──
+        # 新记忆入库前检索 top-k 相似旧记忆, 让模型显式输出"与旧记忆X的关系
+        # (延续/修正/无关)"再存储。语义消歧从 FFN 参数记忆搬到情景记忆。
+        # 默认关闭(anchor=False → 行为与旧版逐字节一致, 239 测试不受影响)。
+        # LLM 失败/离线 → classify_relation 内部降级到纯规则, 绝不阻塞写入。
+        anchor_info = None
+        anchor_derived_from = None
+        if anchor:
+            try:
+                cands = self.search_multi(content, limit=anchor_top_k)
+                for c in cands:
+                    try:
+                        old_ents = json.loads(c.get("entities")) if c.get("entities") else []
+                        old_ents = old_ents if isinstance(old_ents, list) else []
+                    except (json.JSONDecodeError, TypeError):
+                        old_ents = []
+                    c["entity_overlap"] = len(set(new_entities) & set(old_ents))
+                _rel = classify_relation(content, cands, llm=anchor_llm)
+                anchor_info = {
+                    "relation": _rel.get("relation"),
+                    "anchored_key": _rel.get("anchored_key"),
+                    "anchored_id": _rel.get("anchored_id"),
+                    "reason": _rel.get("reason"),
+                    "source": _rel.get("source"),
+                    "model": _rel.get("model"),
+                }
+                if _rel.get("relation") in ("延续", "修正") and _rel.get("anchored_key"):
+                    anchor_derived_from = _rel.get("anchored_key")
+                logger.info("[learn] anchor: relation=%s key=%s source=%s",
+                            anchor_info["relation"], anchor_info["anchored_key"],
+                            anchor_info["source"])
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[learn] anchoring failed: %s", type(e).__name__)
+                anchor_info = {"relation": "无关", "anchored_key": None,
+                               "anchored_id": None,
+                               "reason": "error:" + type(e).__name__,
+                               "source": "error", "model": None}
+
         # 主路径: 向量去重（嵌入在线时）
         if qvec:
             import struct, numpy as np
@@ -1569,6 +1610,8 @@ class MemoryLifecycle:
                     old_verif["prev_v"] = old_verif.get("v")
                 else:
                     old_verif = {"v": "pending"}
+                if anchor_info is not None:
+                    old_verif["anchor"] = anchor_info
                 new_prov = json.dumps(old_verif, ensure_ascii=False)
 
                 # ── 合并内容: 保留旧知识 + 拼接新知识（防止覆盖丢失） ──
@@ -1620,13 +1663,13 @@ class MemoryLifecycle:
                             updated_at=datetime('now'), source_session=?,
                             tags=?, category=?, entities=?, decay_profile=?, provenance=?,
                             event_time=?, source_session_id=?, source_msg_id=?,
-                            source_message_ids=?, raw_excerpt=?
+                            source_message_ids=?, raw_excerpt=?, derived_from=?
                         WHERE id=?
                     """, (merged_content, new_imp, merged_sessions, ",".join(merged_tags),
                           category, entities_json, None, new_prov, merged_event_time,
                           merged_src_session_id, merged_src_msg_id,
                           merged_msg_ids, merged_raw_excerpt,
-                          best["id"]))
+                          best["key"], best["id"]))
                 if merged_entities:
                     # 实体关联表同步（与 set() 的 _update_entity_links 对齐）
                     try:
@@ -1682,6 +1725,8 @@ class MemoryLifecycle:
                     old_verif["prev_v"] = old_verif.get("v")
                 else:
                     old_verif = {"v": "pending"}
+                if anchor_info is not None:
+                    old_verif["anchor"] = anchor_info
                 new_prov = json.dumps(old_verif, ensure_ascii=False)
 
                 # ── 合并内容: 保留旧知识 + 拼接新知识 ──
@@ -1720,13 +1765,13 @@ class MemoryLifecycle:
                             updated_at=datetime('now'), source_session=?,
                             tags=?, category=?, entities=?, decay_profile=?, provenance=?,
                             event_time=?, source_session_id=?, source_msg_id=?,
-                            source_message_ids=?, raw_excerpt=?
+                            source_message_ids=?, raw_excerpt=?, derived_from=?
                         WHERE id=?
                     """, (merged_content, new_imp, merged_sessions, ",".join(merged_tags),
                           category, entities_json, None, new_prov, merged_event_time,
                           merged_src_session_id, merged_src_msg_id,
                           merged_msg_ids, merged_raw_excerpt,
-                          best["id"]))
+                          best["key"], best["id"]))
                 if merged_entities:
                     try:
                         self._update_entity_links(best["id"], old_key, merged_entities)
@@ -1758,6 +1803,7 @@ class MemoryLifecycle:
                  vector=qvec, sparse=qsparse, event_time=event_time,
                  source_session_id=source_session_id, source_msg_id=source_msg_id,
                  source_message_ids=source_message_ids, raw_excerpt=raw_excerpt,
+                 derived_from=anchor_derived_from,
                  validator=validator)
         # set() 写入的 provenance 含 fresh（若传了 validator）——这里读回补
         # v=pending，不整体覆盖（否则 set 里组装的 fresh 会被抹掉）
@@ -1770,6 +1816,8 @@ class MemoryLifecycle:
             except (json.JSONDecodeError, TypeError):
                 prov = {}
             prov["v"] = "pending"
+            if anchor_info is not None:
+                prov["anchor"] = anchor_info
             self._conn.execute(
                 "UPDATE memories SET provenance=? WHERE key=?",
                 (json.dumps(prov, ensure_ascii=False), key))

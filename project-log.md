@@ -473,3 +473,119 @@ ci.yml 的 Install dependencies 改为 `pip install -e .`——装项目自身�
   表、search_multi/peek/recent_work/search_semantic/移植方法全部可用
 - 插件模块在 hermes venv 下导入 OK、db_path 解析正确
 - 真实 memory.db 未改动（仅在副本上验证；迁移在 gateway 重启后自然发生）
+
+## 2026-08-24 记忆系统三层链路审计 + 可溯性欠账（Joe 确认"先记着"，未动手）
+
+### 背景
+复盘"掩码层-原对话-记忆"三层结构（想上 Obsidian 可视化，看清遮蔽层和原对话关系）时，
+审计了真实库 memory.db 的三层链路状态，发现**可溯性欠账**是硬伤：
+
+### 三层真实数据（2026-08-24 实测 memory.db）
+| 层 | 表 | 条数 | 指针字段填充情况 |
+|---|---|---|---|
+| ① 记忆层 | memories | 1670 | `source_message_ids` 仅 **5/1670**、`derived_from` **0/1670**、`provenance` 1662/1670 |
+| ② 掩码层 | episodic | 97 | `session_id_ref` 有（可回指会话 ✓）|
+| ③ 原对话层 | 原始消息/state.db | — | 本 memory.db **无 state/session 表**（未接 state.db 原始对话）|
+
+### 关键判断：链路只通了一半
+- **②→③ 掩码→原对话**：✅ 通（靠 `session_id_ref` 回指会话）
+- **①→② 记忆→掩码**：❌ 断（`derived_from` 0/1670）
+- **①→③ 记忆→原对话**：❌ 断（`source_message_ids` 5/1670）
+
+字段 schema 早就设计好了（`provenance/evidence_refs/derived_from/compressed_to/source_message_ids/raw_excerpt/event_time`），
+但**写入链路（learn/episodic 写入）没接** → 记忆成了孤岛：点开一条记忆，看不到它从哪段对话提炼、
+盖住了什么原文、跟别的记忆是否同源。
+
+### Obsidian 可视化前提（记录方向，未实施）
+Obsidian 双链(`[[ ]]`)+Graph view 能把 `source_message_ids`/`derived_from`/`episodic.session_id_ref`
+这些指针画成图，让"掩码层↔原对话↔记忆"三层关系可见。但**前提是先补断线**：
+learn 写入时把 `source_message_ids`/`derived_from`/`raw_excerpt` 真填上（+可选存量 1670 条回填），
+否则 Obsidian 只能画出空的右半边。
+
+### 产物
+- 图示: `/media/joe/E1/projects/openmle-cog/memory_layers_diagram.png`（三层结构真实链路状况，实线=通/虚线红=断）
+- 绘图脚本: `/media/joe/E1/projects/openmle-cog/draw_memory_layers.py`
+
+### 状态
+**Joe 2026-08-24 确认：这是之前留的烂摊子，先记着，暂不动手。** 后续若要接 Obsidian 可视化，
+第一步是补 learn 写入的指针字段（记忆→原对话/掩码），而非改大量既有数据。
+
+## 2026-08-29 — 记忆-attention 提案（Joe 提出，方向记录，未实施）
+
+### 提案核心
+把语义消歧从 **FFN 参数记忆**（训练语料统计均值，对所有用户一样）搬到**情景记忆**（检索本机对话史）：
+attention 不只看当前输入，还检索"过往类似语段"——`苹果` 的语义由**这台机器自己的记忆库**塑形，
+而非全网均值。检索库是活的、随个人对话史漂移 = 个性化长在语义解释层里（非 prompt 附加）。
+
+### 与已发表工作的对照（边界诚实记录）
+- kNN-LM (2019) / RETRO (DeepMind 2022)：检索**静态训练语料** → Joe 差异化 = 检索库是**活的个人记忆**（memory.db 1670条+entity_links 7435）
+- Memorizing Transformer (2021)：缓存被动积累、无记忆系统语义
+- conversational-prefetch-rag（自建）：只到 prompt 层，**没进计算路径**
+
+### 三级路线
+- **P1 写入侧经验锚定**（零训练，最快）：新记忆 learn() 入库前先检索 top-k 相似旧记忆，
+  模型显式输出"与 [[旧记忆X]] 的关系（延续/修正/无关）"再存储。改 memory-kit 写入路径，entity_links 现成是检索结构。
+- **P2 读侧检索式消歧**：响应前两段式——过往语境作为独立注意力池（prompt 结构模拟），
+  用 llm-behavior-experiments 纪律做 A/B（歧义词测试集，对照有无过往语段检索的消歧正确率）
+- **P3 RETRO 式架构改造**（寒假候选）：1-3B 小模型 cross-attention 层挂 FFN 旁，检索源 = memory.db。
+  双 V100 LoRA 显存可扛，与 execution-feedback-rl 线共享预算
+
+### 坑（预注册）
+- **FFN 不能删**——还管句法/通用世界知识；是"追加源替换"（情景记忆补充参数记忆），非替代
+- **检索质量是命门**——embedding 相似 ≠ 消歧所需相关语境；评估集先建：
+  从 1670 条 memories 挖"同词不同义"真实对话对当 ground truth
+- **写侧实验注意**：Learn() 签名改动会牵连 memorykit-overlay/OpenClaw 插件层，四层更新铁律（库→pip→生产→overlay dist）
+
+### 与既有线索的连接
+- **断线问题（08-24 记录）**：本提案 P1 与"补 learn 写入的指针字段"是同一条写入路径的改造——
+  可同期实施：写入时既补 source_message_ids/derived_from（断线修复），又做 top-k 关系标注（经验锚定）
+- **Obsidian 可视化**（08-24 记录）：P1 完成后记忆间关系（derived_from/关联锚）才有内容可画，vault 导出同理
+- **感知时钟主线**：系统语义被自己历史塑形 = "活在时间里"的具体切片
+
+## 2026-08-29 — P1 锚定落地 + 模型通道切换（deepseek 官方直连）
+
+### 背景
+P1 写入侧经验锚定实现完成（子 agent deleg_0bd8a03e 交付, 见上方提案）。随后按 Joe 指示弃用 opendesign 反代（8792）, 锚定 LLM 通道切到官方直连。
+
+### 通道切换（本日志认领）
+- **弃用**: opendesign 反代 @8792（config.yaml 的 api_key 与反代本地鉴权 key 不一致, 且上游 runtimeKey 轮换不可控——实测 401 invalid local api key）
+- **改用**: deepseek 官方直连 `https://api.deepseek.com/v1` + `deepseek-v4-flash`（实测 0.9s 响应）
+- **关键坑（预注册成铁律）**: deepseek-v4-flash / glm-5.3-flash 都是先出 `reasoning_content` 的模型——`max_tokens<600` 时 content 为空串（实测）。HTTPAnchorLLM.chat 默认 max_tokens 已从 256→600。
+- **key 解析**: `_default_key()` 从 config.yaml `providers.deepseek-v4-flash.api_key` 读取——用**标准库正则**（避免 yaml 依赖, repo venv 无 yaml）；段切割用 `providers:` + 下一 provider 名作锚（直接 split "deepseek-v4-flash:" 会误匹配 model 行）。
+
+### 验证
+- 全量 250 测试全绿（venv 带 jieba）
+- 端到端: learn(anchor=True) → relation=延续(规则fallback) / derived_from 正确指向旧记忆 / provenance 注入 anchor 块
+- LLM 直连: HTTPAnchorLLM chat 返回 content（key 自动读 config, 无需 env）
+
+### 状态
+- 断线修复（learn 写入补 derived_from）随锚定默认开启 ✅
+- 遗留: 存量 1670 条不回填（P2 再议）; source_message_ids 根因在上游调用方不传（plan open_questions #2）
+
+
+## 2026-08-29 — qwen38 memory gateway: memory_save 写入丢失 bug 根因 + 修复
+
+### 现象
+Qwen 调 memory_save 返回"已记住"(成功消息), 但快照库 /tmp/qwen38_mem_snapshot.db 里查不到该记录(origin='qwen38-tool' 恒为 0 条)。日志显示 save 耗时固定在 5.01s 后返回, result_chars=26 即 `工具执行失败: database is locked`。
+
+### 根因(两条, 且互相叠加)
+1. **锁竞争(表层)**: 网关原先每个工具的开口都调 `refresh_snapshot()` → `src.backup(dst)` 把 236MB 生产库整库 backup 进快照。backup 对目标库持写锁、耗时数秒; 冷启动 `_refresh_ts=0` 时多个并发请求同时触发 backup → 写锁 thrash → 后续 INSERT `database is locked` 等满默认 5s busy_timeout 后报错。验证: 停掉网关进程后写锁立即释放(0.00s 拿到)。
+2. **刷新覆盖(真正"写后查不到"的根因)**: `src.backup(dst)` 是**整库替换**——每次 refresh 都把快照库整体替换成生产库副本。而生产库(origin 只有 laptop/desktop/server)不含 qwen38-tool 行, 于是 memory_save 刚写入索引的记录, 下一次 refresh(≤60s 后, 或进程重启后首个请求 _refresh_ts=0)就把整库覆盖回生产副本, 记录被冲掉。这正是"save 成功但库里查不到"的机制。
+   - 另: 用 backup 拷贝**正在被写入的**生产库, 会继承生产库的 FTS vtable(work_log_fts)等重对象, 独立性校验 `PRAGMA integrity_check` 直接报 `vtable constructor failed`。
+
+### 修复方向(按 Joe 指示换方案, 而非在镜像方案上打补丁)
+定位重申: 这是**类 transformer 的检索系统插件**(纯检索, 不生成新内容), 数据面要干净。因此放弃"镜像生产库"方案——它本身就是锁+覆盖问题的来源。改为 **Qwen 独立检索库**, 与生产库彻底解耦:
+
+- **新建独立库** `/tmp/qwen38_own.db`, 干净 schema(仅 id/key/content/category/scope/importance/agent_id/origin/created_at/updated_at, 不含生产库 FTS/vector 重列)。
+- **一次性 seed**: `ensure_own_db()` 只在 own 库为空时执行一次, 从 SEED_SOURCE(= 生产 memory.db 只读源, 1670 条)用 SELECT 拷贝 memories 列(不触发 FTS vtable)。之后**绝不重刷覆盖** → ingest 写入的记录持久可搜。
+- **工具语义改名**: `memory_save` → `memory_ingest`(写入检索索引/ingest, 非"替主人记事"); 保留 memory_save 作兼容别名映射到相同实现。
+- **锁处理**: `_connect()` 统一设 `busy_timeout=30s` + `PRAGMA journal_mode=WAL`; 各工具用 try/finally 关连接, 消除 5s 默认超时。
+
+### 验证(端到端, 全绿)
+- 模块级: fresh seed 1670 行(0.13s) → ingest(0.02s) → search 立刻命中, 无锁超时。
+- 服务级: `export XDG_RUNTIME_DIR=/run/user/1000 && systemctl --user restart/enable qwen38-memgw.service`(原为 transient unit, 已改名成持久 unit 文件 ~/.config/systemd/user/qwen38-memgw.service)。
+- curl 8093 走完整 OpenAI 兼容代理+tool_calls 循环: ① ingest(TECHCON 展会 B42, 0.03s) ② search 命中该记录(0.01s, origin=qwen38-tool) ③ 服务重启后记录仍在(1670→1671, qwen-owned=1)——证明无覆盖。
+- 清理测试记录后, 重启回 fresh seed 1670 行, 服务 active。
+
+### 数据源方案选择说明
+选了**独立库 + 一次性 seed(生产 memory.db 只读源)**。理由: seed 后与生产库零耦合, 无锁竞争、无覆盖, ingest→search 闭环稳定。更进一步的方案(从 state.db 的 169k 条原始 messages 蒸馏出 Qwen 自己的规范记忆库)数据量更纯粹, 但工作量大, 属后续迭代, 不在本次修复范围。
