@@ -60,6 +60,28 @@ describe("memorykit-overlay", () => {
     expect(ae?.opts?.timeoutMs).toBeLessThanOrEqual(10000);
   });
 
+  it("重复 register 同一个 api 不会双份注册（工具 + hook 都要幂等）", () => {
+    const hooks: CapturedHook[] = [];
+    let toolCalls = 0;
+    const api = {
+      registerTool: () => {
+        toolCalls++;
+      },
+      registerHook: () => {},
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      on: (name: string, handler: unknown, opts?: { priority?: number; timeoutMs?: number }) => {
+        hooks.push({ name, handler: handler as CapturedHook["handler"], opts });
+      },
+    };
+    entry.register(api as never);
+    const toolCallsAfterFirst = toolCalls;
+    const hooksAfterFirst = hooks.length;
+    entry.register(api as never);
+    expect(hooksAfterFirst).toBeGreaterThan(0);
+    expect(hooks.length).toBe(hooksAfterFirst); // 没多一组 hook
+    expect(toolCalls).toBe(toolCallsAfterFirst); // 也没多一遍工具
+  });
+
   describe("message 提取", () => {
     it("extractMessageText: 字符串 / text 数组 / input_text 数组", () => {
       expect(extractMessageText("你好")).toBe("你好");

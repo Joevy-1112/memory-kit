@@ -126,6 +126,36 @@ check("knowledge promote", r.get("ok"), str(r)[:200])
 r = call("knowledge", {"action": "search", "query": "显卡"})
 check("knowledge search", r.get("ok"), str(r)[:200])
 
+print("== 8b. learn_batch 批量写入 (2026-10-15 新增) ==")
+r = call("learn_batch", {"items": [
+    {"content": "批量写入验证条目一：机箱风扇是猫头鹰A12x25", "source": "task"},
+    {"content": "批量写入验证条目二：显示器是27寸4K 60Hz", "source": "task"},
+    {"content": "短"},  # <10 字符，应记 error 但不影响整批
+]})
+check("learn_batch 整批返回", r.get("ok"), str(r)[:200])
+check("learn_batch 计数 3 条/2 成功/1 失败",
+      r.get("total") == 3 and r.get("succeeded") == 2 and r.get("failed") == 1, str(r)[:300])
+res = r.get("results") or []
+check("learn_batch 结果与输入顺序对齐(第3条为error)",
+      len(res) == 3 and res[2].get("error") == "content too short", str(res)[:300])
+check("learn_batch 前两条有 key", bool(res[0].get("key")) and bool(res[1].get("key")), str(res)[:300])
+
+r = call("learn_batch", {"items": []})
+check("learn_batch 空 items 报错", not r.get("ok") and "non-empty" in str(r.get("error")), str(r)[:200])
+
+# agent_id 回写: dsh 身份写入不应被记成 hermes (与 cmd_learn 同款修复)
+_aenv = dict(env)
+_aenv["MEMORYKIT_AGENT_ID"] = "dsh"
+_ar = subprocess.run(
+    ["python3", BRIDGE, "learn_batch", json.dumps(
+        {"items": [{"content": "批量写入身份归属验证条目：dsh 写的应记 agent_id=dsh"}]},
+        ensure_ascii=False)],
+    capture_output=True, text=True, env=_aenv, timeout=60,
+)
+_a = json.loads(_ar.stdout or "{}")
+check("learn_batch agent_id 回写 dsh",
+      _a.get("agent_id") == "dsh" and _a.get("agent_id_fixed", 0) >= 1, str(_a)[:200])
+
 print("== 9. stats/cleanup/age ==")
 r = call("stats", {})
 check("stats", r.get("ok") and r.get("stats", {}).get("total", 0) >= 3, str(r)[:200])

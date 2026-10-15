@@ -3,6 +3,7 @@
 
 用法: python3 bridge.py <command> <json-args>
   例:  python3 bridge.py learn '{"content": "显卡预算550块", "source": "task"}'
+       python3 bridge.py learn_batch '{"items": [{"content": "..."}, {"content": "..."}]}'
        python3 bridge.py search '{"query": "显卡"}'
        python3 bridge.py correct '{"key": "user/显卡预算", "signal": "不对"}'
 
@@ -58,18 +59,117 @@ def _trim_hits(hits) -> list:
     return [_trim(h) for h in (hits or [])]
 
 
+def _agent_env():
+    """调用方身份: 环境变量 MEMORYKIT_AGENT_ID 决定记忆归属 (2026-10-15)。
+    dsh 的 MCP 接线在 ~/.dsh/cordis.patch.yml 里传 MEMORYKIT_AGENT_ID=dsh,
+    不传则保持默认 hermes (Hermes/openclaw 直调 bridge 的旧路径不受影响)。"""
+    return os.environ.get("MEMORYKIT_AGENT_ID", "hermes")
+
+
 def cmd_learn(a):
     db = get_db()
     content = a.get("content")
     if not content:
         return {"ok": False, "error": "content required"}
+    agent = _agent_env()
     r = db.learn(
         content,
-        source=a.get("source", "task"),
+        source=a.get("source", "task" if agent == "hermes" else agent),
         source_session=a.get("source_session"),
         event_time=a.get("event_time"),
     )
-    return _ok(result=r)
+    # learn() 内部 self.set() 写死 agent_id='hermes' (lifecycle.py L926),
+    # 这里按调用方身份回写, 保证 dsh 写的条目不被记成 hermes。
+    #
+    # 2026-10-15 修补 (REVIEW.md P1-D): 原来是 `except Exception: pass` ——
+    # 回写失败会把 dsh 的条目静默留在 hermes 名下, 从外部完全看不出来。
+    # 现在改为「回写 + 回读校验 + 失败显式上报」, 调用方拿到 agent_attribution。
+    attribution = "not-needed"        # hermes 调用方本来就是这个归属
+    if agent != "hermes" and isinstance(r, dict) and r.get("key"):
+        attribution = _attribute(db, r["key"], agent)
+        if attribution != "ok":
+            sys.stderr.write(
+                f"[bridge] WARN agent_id 回写失败 key={r['key']} agent={agent} -> {attribution}\n")
+    elif agent != "hermes":
+        attribution = "skipped: learn() 未返回 key"
+    return _ok(result=r, agent_attribution=attribution)
+
+
+def _attribute(db, key: str, agent: str) -> str:
+    """把 key 的 agent_id 改成 agent, 并回读校验。
+
+    返回 "ok" 或失败原因。根因在 memorykit: learn() 没有 agent_id 形参、
+    内部 set() 写死 hermes (lifecycle.py L926) —— 正解是给 learn() 加参数,
+    这里只是不静默的权宜之计 (2026-10-15 修补, REVIEW.md P1-D)。
+    """
+    try:
+        with db._tx():
+            db._conn.execute("UPDATE memories SET agent_id=? WHERE key=?", (agent, key))
+        row = db._conn.execute("SELECT agent_id FROM memories WHERE key=?", (key,)).fetchone()
+        got = row[0] if row else None
+        return "ok" if got == agent else f"verify-mismatch: want {agent}, got {got}"
+    except Exception as e:  # noqa: BLE001 — 归属失败必须可见, 但不能打断写入
+        return f"failed: {type(e).__name__}: {e}"
+
+
+LEARN_BATCH_MAX_ITEMS = 200
+
+
+def cmd_learn_batch(a):
+    """批量灌记忆: 一次批量嵌入 + 逐条复用 learn() 去重/合并。
+
+    items 每项 {content, source?, source_session?, event_time?}。
+    content < 10 字符的条目由 memory-kit 记为 {"error": "content too short"}，
+    结果与 items 顺序一一对应，不因单条失败中断整批。
+    """
+    db = get_db()
+    items = a.get("items")
+    if not isinstance(items, list) or not items:
+        return {"ok": False, "error": "items must be a non-empty list"}
+    if len(items) > LEARN_BATCH_MAX_ITEMS:
+        return {"ok": False,
+                "error": f"too many items: {len(items)} > {LEARN_BATCH_MAX_ITEMS}"}
+    agent = _agent_env()
+    default_source = a.get("source") or ("task" if agent == "hermes" else agent)
+    norm = []
+    for it in items:
+        if not isinstance(it, dict):
+            norm.append(it)  # 交给 learn_batch 记 invalid item，保持顺序对齐
+            continue
+        it = dict(it)
+        if not it.get("source"):
+            it["source"] = default_source
+        norm.append(it)
+    results = db.learn_batch(norm)
+    # 与 cmd_learn 同理: learn_batch 逐条复用 learn(), 其内部 set() 写死
+    # agent_id='hermes' (lifecycle.py L926) → 按调用方身份统一回写。
+    #
+    # 2026-10-15 修补 (REVIEW.md P1-D): 原来用 executemany 一把梭, 失败只记 fixed=0
+    # 且不留痕; 现在逐条走 _attribute(回写 + 回读校验), 失败的 key 带原因上报。
+    # agent_id / agent_id_fixed 两个字段名保持不变 —— func_test.py 第 8b 节依赖它们。
+    fixed = 0
+    attribution_failures = []
+    if agent != "hermes" and isinstance(results, list):
+        for r in results:
+            if not (isinstance(r, dict) and r.get("key")):
+                continue
+            got = _attribute(db, r["key"], agent)
+            if got == "ok":
+                fixed += 1
+            else:
+                attribution_failures.append({"key": r["key"], "reason": got})
+        if attribution_failures:
+            sys.stderr.write(
+                f"[bridge] WARN learn_batch agent_id 回写失败 "
+                f"{len(attribution_failures)}/{fixed + len(attribution_failures)} 条\n")
+    ok_n = sum(1 for r in (results or [])
+               if isinstance(r, dict) and not r.get("error"))
+    return _ok(results=results, total=len(results or []),
+               succeeded=ok_n, failed=len(results or []) - ok_n,
+               agent_id=agent, agent_id_fixed=fixed,
+               agent_attribution=("not-needed" if agent == "hermes"
+                                  else ("ok" if not attribution_failures else "partial")),
+               agent_attribution_failures=attribution_failures)
 
 
 def cmd_set(a):
@@ -78,6 +178,7 @@ def cmd_set(a):
     content = a.get("content")
     if not key or content is None:
         return {"ok": False, "error": "key and content required"}
+    agent = _agent_env()
     r = db.set(
         key,
         content,
@@ -86,6 +187,7 @@ def cmd_set(a):
         importance=a.get("importance", 0.5),
         tags=a.get("tags", ""),
         ttl=a.get("ttl"),
+        agent_id=agent,
     )
     return _ok(result=r)
 
@@ -311,6 +413,7 @@ def cmd_age(a):
 
 COMMANDS = {
     "learn": cmd_learn,
+    "learn_batch": cmd_learn_batch,
     "set": cmd_set,
     "get": cmd_get,
     "search": cmd_search,

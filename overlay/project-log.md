@@ -374,3 +374,60 @@ python3 bench_test.py  # recall@1 100%
 
 ### 不动
 - 我们的 correction 闭环 / 遮蔽 / 指针展开是独有，保持
+
+---
+
+## 2026-10-15 — overlay 修补版（dsh 评审）+ 第二轮 rebase：learn_batch 事故
+
+### 背景
+Hermes 下工单（TASK-memorykit-overlay.md）修缮 memorykit-overlay 历史遗留坑。dsh 在工作区
+（`/media/joe/E2/dsh-workspace/memorykit-overlay`，生产副本的拷贝）完成评审 + 修补：
+P0-A 解释器缺 jieba 导致实体抽取静默降级 / P0-B 工具面补齐且 recall 名不副实 /
+P0-C bridge 失败被吞成空结果 / P1-D agent_id 归属失败静默；另 TS 侧 4 处。
+详见 REVIEW.md / PATCHES.md / patches.diff。
+
+### 事故：修补版基线陈旧，会删掉 learn_batch
+补丁快照的文件 mtime 是 18:23-18:45，而生产侧 `bridge.py` / `mcp_memory_server.py` /
+`func_test.py` 的 mtime 是 21:26-21:27 —— 即快照**早于** `learn_batch` 落地。逐文件 diff：
+
+| 文件 | 生产（21:26-21:27） | 补丁快照（18:37-18:44） | 后果 |
+|---|---|---|---|
+| `bridge.py` | 426 行，含 `cmd_learn_batch` + `LEARN_BATCH_MAX_ITEMS` | 395 行，**无** | 批量写入整条消失 |
+| `mcp_memory_server.py` | 245 行，含 `learn_batch` 工具 | 无 | dsh 侧 `mcp__memory__learn_batch` 工具没了 |
+| `func_test.py` | 168 行（33→39 全绿） | 138 行（08-11 旧版） | 第 8b 节 5 条测试一起消失 |
+| `README.md` | 231 行（记 learn_batch 已落地） | 230 行（08-21） | 进度记录被回退 |
+
+即：**按原样上线 = 静默回退当天刚验收的批量能力**，而且"工具数 8→14"这类计数断言抓不到
+—— 数量对得上，功能没了。
+
+### 处置：以当前生产为基线重落补丁
+1. `bridge.py` = 生产 + `_attribute()`（回写 + 回读校验 + 失败 WARN/上报）；`cmd_learn` 与
+   `cmd_learn_batch` **都**走它，保留 `agent_id` / `agent_id_fixed` 字段名（func_test 8b 依赖）。
+2. `mcp_memory_server.py` = 修补版 + `learn_batch` 工具（`TOOL_IMPL` 一行 + `"batch"` 输出形态），
+   工具数 14 → 15（覆盖 bridge 17 个子命令中的 15 个，`cleanup`/`age` 故意不暴露）。
+   批量调用单独超时 `_TOOL_TIMEOUT["learn_batch"]=600s`（走默认 30s 会把批量写入砍掉）。
+3. `func_test.py` / `README.md` / `verify_mcp_tools.py` 对齐到生产版本；`verify_mcp_tools.py`
+   的 `REQUIRED` 从 8 个扩到 15 个工具。
+4. 新增回归防线 `tests/test_mcp_server_patched.py` T12：端到端写批量 + 断言 `bridge.py` 仍导出
+   `learn_batch`、`TOOL_IMPL` 仍含它、超时 ≥300s —— 专治"数量对得上但功能没了"。
+
+### 验证（2026-10-15，全部跑在 /tmp 临时库，未碰生产 memory.db）
+| 检查 | 结果 |
+|---|---|
+| `py_compile`（bridge / mcp_server） | 通过 |
+| `tests/test_mcp_server_patched.py` | **全绿**（T1-T12，含 T12 新增 8 条 learn_batch 断言） |
+| `func_test.py` | **39 通过 / 0 失败**（含 8b 五条） |
+| `verify_mcp_tools.py` | 15 工具齐全 → `OK` |
+| `preflight.py` | 0 FAIL / 1 WARN（`MEMORYKIT_PY` 未设 —— 真实待办） |
+| `tsc -p tsconfig.json` / `vitest run` | 构建通过 / **20 passed** |
+| bridge 端到端（临时库） | learn 与 learn_batch 回执 `agent_attribution=ok`；库内 `agent_id` 全为 dsh |
+
+### 待办 / 未决
+- **`MEMORYKIT_PY` 未设**：生产仍用 `/usr/bin/python3`（无 jieba）→ 实体抽取仍在静默降级
+  （已实测：同一条中文，`/usr/bin/python3` 落 `entities` 空、`venv-flagembed` 抽出专名）。
+  最小止血 = `~/.dsh/cordis.patch.yml` 的 `memory-memorykit.env` 加
+  `MEMORYKIT_PY: /home/joe/venv-flagembed/bin/python3`（需重启 dsh web，属甲方动作）。
+- **`recall` 语义变更需 Joe 拍板**：修补版把 `recall` 从转发 `search` 改成真 `episodic`
+  （返回 `{episodes}` 而非 `{hits}`）。README 原本记的就是"待 Joe 拍板"。
+- 根治项（本次未动 `~/memory-kit` 库本体）：给 `memorykit.learn()/learn_batch()` 加 `agent_id`
+  形参，`_attribute()` 即可删除 —— 现在只是"不静默"的权宜之计。

@@ -211,12 +211,19 @@ memory层（密集片段，低分辨率+指针）
 - [x] ~~批量嵌入~~ → **learn_batch 落地 (08-06)**：端到端 1.90x、嵌入阶段 4.77x、HTTP 调用 500→4 次、81 测试全绿（memorykit 核心，overlay bridge 尚未暴露）
 - [x] ~~hybrid 嵌入~~ → **8082/8083 均换 bge-m3 原版三路 (08-07 上午)**：dense+sparse+colbert，sparse 接入检索（Signal 6 lexical，LEXICAL_WEIGHT=0.3），97 测试全绿
 - [x] ~~hybrid 回退 (08-07 下午)~~ → **实测结论追加**：bge-m3 原版三路对中文 sparse 几乎不激活（0-1 token）+ 慢 6.5x（35.8ms vs GGUF 5.5ms）→ 用户拍板换回 GGUF，hybrid 暂缓。原版三路代码/venv 保留（venv-flagembed + bge3_hybrid_server.py），要启用随时可以
+- [x] ~~服务器 Hermes 评审 / 开源评估~~ → **取消 (08-21 Joe 拍板)**：不开源评审流程，本地 README 即文档
+- [x] ~~设计文档归档~~ → **本地 README 已含架构/工具/测试/当前状态**（08-21 补）
 - [ ] sparse 对中文语料增益有限（实测几乎不激活）——hybrid 价值主要在英文；中文场景退化纯 dense+fulltext，不夸大
-- [ ] overlay bridge/TS 暴露 learn_batch（海量灌入场景走批量）
+- [x] ~~overlay bridge/TS 暴露 learn_batch~~ → **bridge + MCP 落地 (10-15)**：`bridge.py learn_batch`（≤200 条/批、一次批量嵌入 + 逐条复用 learn 去重、结果与输入顺序对齐、单条失败不中断、agent_id 按调用方身份回写）+ MCP 工具 `learn_batch`（单次 timeout 600s）；func_test 33→39 全绿。OpenClaw TS 侧未做（插件 08-15 起 disabled）
+- [x] ~~MCP `recall` 实际转发 `search`（bridge 已有 `episodic` 未接）~~ → **修补版修真 (10-15)**：带 `query` 走 `episodic action=search`、不带走 `action=list`，返回结构由 `{hits}` 改为 `{episodes}`。语义变更待 Joe 拍板确认
 - [ ] 基准测试扩大题目集（当前 6 题 × 3 模式，种子 6 条）
 - [ ] 大样本 ablation（50-100 条 × 多次重复取均值）——20 条样本结果不稳定（±15pp 漂移），"基线 vs v2 持平"不可判定
-- [ ] 服务器 Hermes 评审（memory-v2 概念模块，开源评估）
-- [ ] 设计文档归档（memorykit-overlay 架构说明）
+
+## 当前状态（2026-08-21 更新）
+
+- **OpenClaw 插件已 disable（08-15）**：为避免与 Hermes 的 memory-kit 依赖混用，`src/index.ts` 插件从小龙虾停用；代码/测试/桥保留，随时可重新 enable
+- **dsh MCP 记忆桥（08-17，10-15 扩工具；修补版 15 工具）**：`mcp_memory_server.py`（stdio MCP server，15 工具：search/learn/learn_batch/set/get/correct/reinforce/verify/verify_stats/recall/episodic/overlay/search_state/knowledge/stats；`cleanup`/`age` 为运维命令故意不暴露）+ `dsh-memory.cordis.yml`——指向 `~/.hermes/memory.db` 真库，供 DeepSeek Harness 直接读写 Hermes 记忆
+- **memorykit 本体独立演进**：`~/memory-kit`（AGPL-3.0）已解耦，改动只影响 Hermes 侧
 
 ## 相关
 

@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Type } from "typebox";
 import {
@@ -8,11 +9,19 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+// 解释器（2026-10-15 修补, REVIEW.md P0-A/P1-F）：
+// 实体抽取依赖 jieba，系统 python3 没装 → memorykit 会**静默降级**（中文专名全灭）。
+// 变量名与 mcp_memory_server.py 的 MEMORYKIT_PY 保持一致，两侧统一配置。
+const PYTHON =
+  process.env.MEMORYKIT_PY ?? "/home/joe/venv-flagembed/bin/python3";
+
 // memorykit-overlay bridge 路径（与插件同目录；可用环境变量覆盖——测试时指向源目录）
 function bridgePath(): string {
   return (
     process.env.MEMORYKIT_OVERLAY_BRIDGE ??
-    new URL("./bridge.py", import.meta.url).pathname
+    // 用 fileURLToPath 而不是 .pathname：路径含空格/非 ASCII 时 pathname 会留下 %20
+    // （2026-10-15 修补, REVIEW.md P2-G）
+    fileURLToPath(new URL("./bridge.py", import.meta.url))
   );
 }
 
@@ -43,6 +52,12 @@ const LEARNED_DEDUPE_MAX = 100; // 自动 learn 幂等窗口（条数）
 const MIN_LEARN_CHARS = 20; // 质量门槛：最短长度（参考 hermes-local sync_turn）
 const MIN_CJK_CHARS = 4; // 质量门槛：最少中文字数（信息密度，闲聊通常 <4）
 const LEARN_MAX_CHARS = 500; // 自动 learn 内容上限
+// hook 超时预算（2026-10-15 修补, REVIEW.md P2-I）：agent_end 内部
+// checkin + learn 的预算之和必须 < hook 自身超时，否则 learn 会在提交前被杀。
+const HOOK_PROMPT_TIMEOUT_MS = 3000; // before_prompt_build：每轮都跑，必须短
+const HOOK_AGENT_END_TIMEOUT_MS = 8000;
+const CHECKIN_TIMEOUT_MS = 2000;
+const LEARN_TIMEOUT_MS = 5000;
 
 /** 纯问候/寒暄（首词命中即跳过 learn）——参考 hermes-local _greetings */
 const GREETINGS = new Set([
@@ -76,7 +91,7 @@ async function callBridge(
   args: Record<string, unknown> = {},
   timeoutMs = 30000,
 ) {
-  const { stdout } = await execFileAsync("/home/joe/venv-flagembed/bin/python3", [bridgePath(), cmd, JSON.stringify(args)], {
+  const { stdout } = await execFileAsync(PYTHON, [bridgePath(), cmd, JSON.stringify(args)], {
     timeout: timeoutMs,
     maxBuffer: 1024 * 1024 * 8,
   });
@@ -267,7 +282,7 @@ async function handleAgentEnd(
   const sessionRef = ctx.sessionKey ?? ctx.sessionId ?? event.runId ?? "";
   if (sessionRef) {
     try {
-      await callBridge("episodic", { action: "checkin", session_id: sessionRef }, 5000);
+      await callBridge("episodic", { action: "checkin", session_id: sessionRef }, CHECKIN_TIMEOUT_MS);
     } catch (err) {
       ctx.logger?.debug?.(`[memorykit-overlay] episodic checkin skipped: ${err}`);
     }
@@ -287,7 +302,7 @@ async function handleAgentEnd(
     await callBridge(
       "learn",
       { content, source: "session", source_session: sessionRef },
-      8000,
+      LEARN_TIMEOUT_MS,
     );
   } catch (err) {
     ctx.logger?.debug?.(`[memorykit-overlay] agent_end auto-learn skipped: ${err}`);
@@ -299,11 +314,32 @@ async function handleAgentEnd(
   ctx.logger?.debug?.("[memorykit-overlay] agent_end auto-learned a memory");
 }
 
+/** 启动自检：解释器到底有没有 jieba。
+ *  缺了 memorykit 会静默降级（中文专名全灭、entities=NULL），必须显式告警
+ *  —— 2026-10-15 修补, REVIEW.md P0-A（这条坑 README 记录过一次，MCP 侧又踩了一次）。 */
+async function checkPythonCapability(logger?: HookApi["logger"]) {
+  try {
+    await execFileAsync(PYTHON, ["-c", "import jieba"], { timeout: 30_000 });
+  } catch {
+    logger?.warn?.(
+      `[memorykit-overlay] ${PYTHON} 没有 jieba → 实体抽取会静默降级（中文专名全灭）。` +
+        " 修复：设 MEMORYKIT_PY=/home/joe/venv-flagembed/bin/python3",
+    );
+  }
+}
+
 /** 注册两个自动 hook（manifest activation.onCapabilities: ["hook"] 配套） */
+const hooksRegisteredOn = new WeakSet<object>();
+
 function registerHooks(api: HookApi) {
+  // 同一个 api 只注册一次：宿主若重复调 register，hook 会双份触发（每轮注入两次）
+  // —— 2026-10-15 修补, REVIEW.md P2-H
+  if (hooksRegisteredOn.has(api as object)) return;
+  hooksRegisteredOn.add(api as object);
   // 默认 before_prompt_build 超时 15s 太慢——每轮都跑，收短到 3s，失败静默
-  api.on("before_prompt_build", handleBeforePromptBuild, { timeoutMs: 3000 });
-  api.on("agent_end", handleAgentEnd, { timeoutMs: 8000 });
+  api.on("before_prompt_build", handleBeforePromptBuild, { timeoutMs: HOOK_PROMPT_TIMEOUT_MS });
+  api.on("agent_end", handleAgentEnd, { timeoutMs: HOOK_AGENT_END_TIMEOUT_MS });
+  void checkPythonCapability(api.logger);
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -502,9 +538,16 @@ const plugin = defineToolPlugin({
   ],
 });
 
-// 附加自动 hook：defineToolPlugin 只注册工具，register 外面再包一层挂 hooks
+// 附加自动 hook：defineToolPlugin 只注册工具，register 外面再包一层挂 hooks。
+// （SDK 没给 hooks 入口时的绕法；registerHooks 内部用 WeakSet 保证幂等，
+//   即使宿主重复调用 register 也不会双份注册 —— 2026-10-15, REVIEW.md P2-H）
+const registeredApis = new WeakSet<object>();
 const _origRegister = plugin.register;
 plugin.register = (api) => {
+  // 工具 + hook **一起**幂等：宿主重复调 register 时，只挡 hook 不够——
+  // _origRegister 会再跑一遍，10 个工具也注册两遍。（2026-10-15 补，本地模型复审提出）
+  if (registeredApis.has(api as object)) return;
+  registeredApis.add(api as object);
   _origRegister(api);
   registerHooks(api);
 };

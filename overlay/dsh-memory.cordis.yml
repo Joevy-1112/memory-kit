@@ -1,0 +1,14 @@
+# 我们的 memorykit 记忆 MCP —— 2026-08-17 Joe 拍板: 把 memory 插件给 dsh
+# 应用: dsh web --patch <本文件> (或合并进 ~/.dsh/cordis.patch.yml 全 profile 生效)
+- insert:
+    - id: memory-memorykit
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: memory
+        transport: stdio
+        command: python3
+        args: [/home/joe/memorykit-overlay/mcp_memory_server.py]
+        cwd: !!js process.cwd()
+        env:
+          MEMORYKIT_OVERLAY_BRIDGE: /home/joe/memorykit-overlay/bridge.py
+          MEMORYKIT_DB: /home/joe/.hermes/memory.db
