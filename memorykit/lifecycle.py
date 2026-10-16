@@ -3,7 +3,10 @@
 import json
 import logging
 import re
+import time
 from datetime import datetime, timedelta
+
+import numpy as np
 
 from .anchoring import classify_relation
 
@@ -223,34 +226,128 @@ class MemoryLifecycle:
         return {"decayed": total, "staled": staled, "archived": archived,
                 "deleted": deleted, "revived": revived, "profiles": counts}
 
-    def deduplicate(self, threshold=0.92):
-        """语义去重: 合并相似度>threshold的条目。"""
+    def deduplicate(self, threshold=0.92, max_seconds=15.0):
+        """语义去重: 合并相似度 >= threshold 的条目。
+
+        2026-10-16 性能重写（生产 turn 卡 24 分钟事故）。
+          旧实现：两层 for 里对**每一对**重新 json.loads 两个 1024 维向量 +
+          逐对纯 Python 余弦；N=2028 时 C(N,2)=2,055,378 对、实测
+          721 µs/对 → 约 24.7 分钟，而且整段包在写事务里，串在
+          commit_memory_session() 的同步链上。
+          新实现：每行向量只解析一次 → float32 数组；numpy 向量化算
+          "候选对"；合并顺序与合并判定仍完全沿用旧的贪心语义
+          （外层 i 升序、内层 j>i 升序、首中即 break，逐对用同一个
+          `self._cosine_similarity` 精确复核），因此同输入下产出的 pairs
+          与旧实现逐条一致（对照测试见 tests/test_dedupe_fast.py）。
+          max_seconds: 软截止。相似度扫描超时 → 本次不写库、返回 skipped，
+          并记一条可审计 warning，下个窗口再补；默认 15s，足以覆盖全量
+          2028 条的向量化扫描（实测 ~1s 量级）。
+        """
+        t_start = time.monotonic()
         rows = self._conn.execute(
             "SELECT id, key, content, importance, vector FROM memories "
             "WHERE vector IS NOT NULL ORDER BY id"
         ).fetchall()
-        pairs = []; removed = 0
-        # 2026-08-02: json.loads 加保护（畸形 vector 跳过而非中断循环），
-        # 写循环包 _tx——异常自动 rollback，防悬挂写事务
+        n = len(rows)
+
+        # ── 1) 每行向量只解析一次（旧实现每对解析 2 次 = 4,110,756 次 json.loads）──
+        skipped = False
+        skip_reason = None
+        vecs = [None] * n
+        for idx in range(n):
+            if (max_seconds is not None and idx and (idx % 512 == 0)
+                    and (time.monotonic() - t_start) > max_seconds):
+                skipped = True
+                skip_reason = "max_seconds_exceeded_during_vector_parse"
+                break
+            raw = rows[idx]["vector"]
+            if not raw:
+                continue
+            try:
+                v = json.loads(raw)
+            except Exception:
+                continue  # 畸形 JSON：旧实现逐对 continue，等价于跳过该行
+            if not isinstance(v, (list, tuple)) or len(v) == 0:
+                continue  # 空向量/非向量：旧实现 `if vi and vj` 为假 → 该对不参与
+            try:
+                arr = np.asarray(v, dtype=np.float32)
+            except Exception:
+                continue
+            if arr.ndim != 1:
+                continue
+            vecs[idx] = arr
+
+        if skipped:
+            # 解析阶段就超预算：不建矩阵、不写库，记一条可审计日志
+            logger.warning(
+                "deduplicate skipped (audit): reason=%s threshold=%s rows=%d "
+                "elapsed=%.3fs; no writes applied, retry next window",
+                skip_reason, threshold, n, time.monotonic() - t_start)
+            return {"merged": 0, "removed": 0, "pairs": [], "skipped": True,
+                    "reason": skip_reason, "n_vectors": 0,
+                    "elapsed_s": round(time.monotonic() - t_start, 3)}
+
+        valid = [i for i in range(n) if vecs[i] is not None]
+        X = np.stack([vecs[i] for i in valid]).astype(np.float32) if valid else None
+        norms = np.linalg.norm(X, axis=1) if X is not None else None
+
+        # ── 2) 贪心合并顺序 —— 与旧实现完全一致 ──
+        EPS = 1e-4  # 仅用于筛候选（覆盖 BLAS 舍入）；最终判定仍用精确余弦
+        pairs = []
+        merge_ops = []  # (keep_key, keep_content, remove_key, remove_content, importance)
+        for i in range(n):
+            vi = vecs[i]
+            if vi is None:
+                continue
+            if max_seconds is not None and (time.monotonic() - t_start) > max_seconds:
+                skipped = True
+                skip_reason = "max_seconds_exceeded_during_similarity_scan"
+                break
+            ni = float(np.linalg.norm(vi))
+            if ni == 0.0:
+                continue  # 旧实现 _cosine_similarity 对零向量返回 0.0 → 永不合并
+            with np.errstate(divide="ignore", invalid="ignore"):
+                sims = (X @ vi) / (norms * ni)
+            cand = np.nonzero(sims >= (threshold - EPS))[0]
+            for pos in cand:
+                j = valid[int(pos)]
+                if j <= i:
+                    continue
+                vj = vecs[j]
+                if vj is None:
+                    continue
+                if self._cosine_similarity(vi, vj) >= threshold:
+                    keep = rows[i] if rows[i]["importance"] >= rows[j]["importance"] else rows[j]
+                    remove = rows[j] if keep["key"] == rows[i]["key"] else rows[i]
+                    pairs.append((keep["key"], remove["key"]))
+                    merge_ops.append((keep["key"], keep["content"], remove["key"],
+                                      remove["content"],
+                                      max(keep["importance"], remove["importance"])))
+                    break
+
+        if skipped:
+            logger.warning(
+                "deduplicate skipped (audit): reason=%s threshold=%s n_vectors=%d "
+                "elapsed=%.3fs; no writes applied, retry next window",
+                skip_reason, threshold, len(valid), time.monotonic() - t_start)
+            return {"merged": 0, "removed": 0, "pairs": [], "skipped": True,
+                    "reason": skip_reason, "n_vectors": len(valid),
+                    "elapsed_s": round(time.monotonic() - t_start, 3)}
+
+        # ── 3) 按同一顺序应用与旧实现逐条相同的 UPDATE/DELETE ──
+        removed = 0
         with self._tx():
-            for i in range(len(rows)):
-                for j in range(i+1, len(rows)):
-                    try:
-                        vi = json.loads(rows[i]["vector"]) if rows[i]["vector"] else None
-                        vj = json.loads(rows[j]["vector"]) if rows[j]["vector"] else None
-                    except Exception:
-                        continue
-                    if vi and vj and self._cosine_similarity(vi, vj) >= threshold:
-                        keep = rows[i] if rows[i]["importance"] >= rows[j]["importance"] else rows[j]
-                        remove = rows[j] if keep["key"] == rows[i]["key"] else rows[i]
-                        nc = keep["content"]
-                        if remove["content"] not in keep["content"]:
-                            nc += "\n\n[合并自: %s]\n%s" % (remove["key"], remove["content"][:200])
-                        self._conn.execute("UPDATE memories SET content=?, importance=? WHERE key=?",
-                                           (nc, max(keep["importance"], remove["importance"]), keep["key"]))
-                        self._conn.execute("DELETE FROM memories WHERE key=?", (remove["key"],))
-                        pairs.append((keep["key"], remove["key"])); removed += 1; break
-        return {"merged": len(pairs), "removed": removed, "pairs": pairs}
+            for keep_key, keep_content, remove_key, remove_content, imp in merge_ops:
+                nc = keep_content
+                if remove_content not in keep_content:
+                    nc += "\n\n[合并自: %s]\n%s" % (remove_key, remove_content[:200])
+                self._conn.execute("UPDATE memories SET content=?, importance=? WHERE key=?",
+                                   (nc, imp, keep_key))
+                self._conn.execute("DELETE FROM memories WHERE key=?", (remove_key,))
+                removed += 1
+        return {"merged": len(pairs), "removed": removed, "pairs": pairs,
+                "skipped": False, "reason": None, "n_vectors": len(valid),
+                "elapsed_s": round(time.monotonic() - t_start, 3)}
 
     def detect_conflicts(self):
         """跨Agent冲突检测。"""
