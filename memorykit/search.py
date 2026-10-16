@@ -426,8 +426,9 @@ class MemorySearch:
 
             if not sem_results:
                 # Fallback: JSON parse（同样做维度过滤）
+                # 注意：r 是 sqlite3.Row，没有 .get()；SELECT 已含 vector 列，直接下标。
                 for r in all_rows:
-                    v = json.loads(r["vector"]) if r.get("vector") else None
+                    v = json.loads(r["vector"]) if r["vector"] else None
                     if v and len(v) == qdim:
                         sem_results.append({"_sem_score": self._cosine_similarity(qvec, v), "key": r["key"]})
             
