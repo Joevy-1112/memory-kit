@@ -46,9 +46,17 @@ class DeterministicEmbedder:
     """确定性假嵌入器：相同文本 → 相同向量（cos=1 触发向量去重合并）。"""
 
     def _vec(self, text):
+        # 64 维去均值单位向量: 相同文本 cos=1(触发向量去重), 不同文本 cos≈0。
+        # 旧实现取 md5 前 4 字节 → 只有 4 维, 随机文本的 cos 噪声可达 0.93,
+        # 会越过 0.92 合并闸门把无关记忆合并掉(CI 红: test_llm_unrelated_*)。
         import hashlib
-        h = hashlib.md5((text or "").encode("utf-8")).digest()
-        return [b / 255.0 for b in h[:4]]
+        import math
+        h = hashlib.sha512((text or "").encode("utf-8")).digest()
+        vals = [b / 255.0 for b in h]
+        mean = sum(vals) / len(vals)
+        centered = [x - mean for x in vals]
+        norm = math.sqrt(sum(x * x for x in centered)) or 1.0
+        return [x / norm for x in centered]
 
     def embed(self, text):
         return self._vec(text) if text and len(text.strip()) >= 3 else None
