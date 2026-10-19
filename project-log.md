@@ -589,3 +589,12 @@ Qwen 调 memory_save 返回"已记住"(成功消息), 但快照库 /tmp/qwen38_m
 
 ### 数据源方案选择说明
 选了**独立库 + 一次性 seed(生产 memory.db 只读源)**。理由: seed 后与生产库零耦合, 无锁竞争、无覆盖, ingest→search 闭环稳定。更进一步的方案(从 state.db 的 169k 条原始 messages 蒸馏出 Qwen 自己的规范记忆库)数据量更纯粹, 但工作量大, 属后续迭代, 不在本次修复范围。
+
+
+## 2026-10-19 第二种语料(skill/文档库)设计草案
+
+- 起因: Hermes 系统提示实测 46,128 字符, 其中技能索引(243 份 SKILL.md 的 name+description)占 21,486 = 46.6%; 单份最大技能正文 94K 字符(≈55K tok), 载入一次等于系统提示两倍。
+- 已确认可复用: 服务器 bge-m3(1024 维, 8082 常驻) + `_extract_entities` + `entity_links`(9,648 条/5,280 实体) + `RRF_K` 融合。
+- 预实验: 243 技能建技能级摘要索引 55.6s; 8 题召回对比 —— 整句 embedding 命中 6/14, 多实体并集(每实体 top3 合并重排) 9/14。失败案例证明索引必须到正文 chunk 级(仅 description 会漏主题词)。
+- 设计落 `design-notes/skill-corpus-2026-10.md`: 新增平行表 `corpus_chunks` / `corpus_entity_links`(不动 memories 与 entity_links), 按 ## 标题切块(243 文件 → 6,762 块), 实体三步清洗(小写归一/黑名单/频次≥2), 混合召回(向量+FTS5)。
+- 版本目标 1.3.0; 未实现, 待评审。
