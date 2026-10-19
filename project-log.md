@@ -598,3 +598,22 @@ Qwen 调 memory_save 返回"已记住"(成功消息), 但快照库 /tmp/qwen38_m
 - 预实验: 243 技能建技能级摘要索引 55.6s; 8 题召回对比 —— 整句 embedding 命中 6/14, 多实体并集(每实体 top3 合并重排) 9/14。失败案例证明索引必须到正文 chunk 级(仅 description 会漏主题词)。
 - 设计落 `design-notes/skill-corpus-2026-10.md`: 新增平行表 `corpus_chunks` / `corpus_entity_links`(不动 memories 与 entity_links), 按 ## 标题切块(243 文件 → 6,762 块), 实体三步清洗(小写归一/黑名单/频次≥2), 混合召回(向量+FTS5)。
 - 版本目标 1.3.0; 未实现, 待评审。
+
+## 2026-10-19 第二种语料设计 + 合并闸门定位
+
+- 起因: Hermes 系统提示实测 46,128 字符≈26.6K tok, 技能索引占 21,486=46.6%;
+  单份最大技能正文 94K 字符(载入≈55K tok)。
+- 预实验: 243 技能→6,762 块(均 483 字), bge-m3@8082 1024 维, 全量约 20 分钟;
+  8 题召回对比 整句 6/14 vs 多实体并集 9/14。
+- 产出: `design-notes/skill-corpus-2026-10.md`(设计稿) + README Roadmap 一条 +
+  issue #6(RFC); `design-notes/handoff-2026-10-19.md`(交接: 三条待办+环境须知)。
+- CI 红定位: 上次绿是 2026-08-15, 之后 test_anchoring 才加, 从没跑过。
+  失败根因 = 测试自身 `DeterministicEmbedder` 只有 4 维(md5 前 4 字节),
+  随机文本 cos 噪声可达 0.93 越过 0.92 闸门 → "无关不合并"断言失败。
+  修: 4 维→64 维 sha512 去均值归一(b1d7f66), 256 tests OK(2 skipped), CI 绿。
+- 把猜测证伪: 原以为"嵌入降级(hash 兜底)→ cos 虚高 → 误合并", 实测否掉
+  (hash 100 对 max 0.271; 真 bge-m3 100 对 max 0.662; 均 0/100 越 0.85)。
+- 真问题(issue #7): `learn()` 锚定先算 relation(1598), 合并闸门(1665)不读它 →
+  模型判"无关"仍合并。方案 A(灰带 0.85–0.92 放行锚定否决)待实施, Joe 说之后再说。
+- 环境: gh 设备码登录成功(Joevy-1112, repo/read:org/gist); 笔电连不上 github.com,
+  服务器直连即可; 本地跑测试需 jieba(裸 python 会挂 14 条实体测试)。
