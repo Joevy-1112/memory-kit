@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""去重性能重写回归测试（2026-10-16）。
+"""去重回归测试（2026-10-16 性能版 → 2026-10-20 P0 数据保全版）。
 
 覆盖：
-- 语义不变性：同输入下新实现产出的 (keep, remove) pairs 与旧实现逐条一致
-  （旧实现原文内嵌为 _legacy_deduplicate，作为对照 oracle）
-- 边界语义：畸形 JSON 向量跳过、零向量不合并、keep/remove 由 importance 决定、
-  「被删行后续再作为外层 i」的陈旧快照语义一致
-- 解析次数：新实现每行向量只 json.loads 一次（旧实现是 O(N^2) 次）
+- P0 数据保全：被合并行不物理删除（status='merged' + merged_into），
+  全文保留；keep 行拼接被合并行全文（不再 200 字截断）
+- P0 幂等：连跑两次，第二次 merged=0，merge_events 不再增长
+- P0 dry_run：只出计划，不 UPDATE、不写 merge_events
+- merge_events 审计：每个 (keep, remove) 一行，含全文/sim/reason
+- 边界语义：畸形 JSON 向量跳过、零向量不合并、keep/remove 由 importance 决定
+- 解析次数：每行向量只 json.loads 一次
 - 断链预算：max_seconds 超时 → 不写库、返回 skipped、结果集为空
 
 运行：
@@ -18,6 +20,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -32,35 +35,7 @@ def make_tmp_db():
     return path
 
 
-def _legacy_deduplicate(self, threshold=0.92):
-    """旧实现原文（2026-08-02 版本）—— 语义不变性对照 oracle，不要改。"""
-    rows = self._conn.execute(
-        "SELECT id, key, content, importance, vector FROM memories "
-        "WHERE vector IS NOT NULL ORDER BY id"
-    ).fetchall()
-    pairs = []; removed = 0
-    with self._tx():
-        for i in range(len(rows)):
-            for j in range(i+1, len(rows)):
-                try:
-                    vi = json.loads(rows[i]["vector"]) if rows[i]["vector"] else None
-                    vj = json.loads(rows[j]["vector"]) if rows[j]["vector"] else None
-                except Exception:
-                    continue
-                if vi and vj and self._cosine_similarity(vi, vj) >= threshold:
-                    keep = rows[i] if rows[i]["importance"] >= rows[j]["importance"] else rows[j]
-                    remove = rows[j] if keep["key"] == rows[i]["key"] else rows[i]
-                    nc = keep["content"]
-                    if remove["content"] not in keep["content"]:
-                        nc += "\n\n[合并自: %s]\n%s" % (remove["key"], remove["content"][:200])
-                    self._conn.execute("UPDATE memories SET content=?, importance=? WHERE key=?",
-                                       (nc, max(keep["importance"], remove["importance"]), keep["key"]))
-                    self._conn.execute("DELETE FROM memories WHERE key=?", (remove["key"],))
-                    pairs.append((keep["key"], remove["key"])); removed += 1; break
-    return {"merged": len(pairs), "removed": removed, "pairs": pairs}
-
-
-# 精心构造：会产生多次合并 + 覆盖 keep/remove 双向 + 畸形/零向量 + 被删行后续复用
+# 精心构造：会产生多次合并 + 覆盖 keep/remove 双向 + 畸形/零向量
 FIXTURE = [
     # key, content, importance, vector(json str or None)
     ("a", "alpha", 0.50, json.dumps([1.0, 0.0, 0.0])),
@@ -88,39 +63,125 @@ def _snapshot(db):
         "SELECT key, content, importance FROM memories ORDER BY key").fetchall()]
 
 
-class TestDedupeSemanticInvariance(unittest.TestCase):
+class TestDedupeDataSafety(unittest.TestCase):
     def setUp(self):
-        self.tmp_old = make_tmp_db()
         self.tmp_new = make_tmp_db()
-        self.db_old = MemoryDB(self.tmp_old)
         self.db_new = MemoryDB(self.tmp_new)
-        _seed(self.db_old)
         _seed(self.db_new)
 
     def tearDown(self):
-        for db, p in ((self.db_old, self.tmp_old), (self.db_new, self.tmp_new)):
-            try:
-                db._conn.close()
-            except Exception:
-                pass
-            try:
-                os.remove(p)
-            except OSError:
-                pass
+        try:
+            self.db_new._conn.close()
+        except Exception:
+            pass
+        try:
+            os.remove(self.tmp_new)
+        except OSError:
+            pass
 
-    def test_pairs_and_rows_identical_to_legacy(self):
-        for thr in (0.92, 0.85, 0.70, 0.50):
-            # 每个阈值都从同一 seed 重置，保证 old/new 输入逐字节相同
-            for db in (self.db_old, self.db_new):
-                db._conn.execute("DELETE FROM memories")
-                _seed(db)
-            ro = _legacy_deduplicate(self.db_old, threshold=thr)
-            rn = self.db_new.deduplicate(threshold=thr, max_seconds=None)
-            self.assertEqual(ro["pairs"], rn["pairs"], msg="pairs differ at thr=%s" % thr)
-            self.assertEqual(ro["merged"], rn["merged"], msg="merged differ at thr=%s" % thr)
-            self.assertEqual(ro["removed"], rn["removed"], msg="removed differ at thr=%s" % thr)
-            self.assertEqual(_snapshot(self.db_old), _snapshot(self.db_new),
-                             msg="resulting rows differ at thr=%s" % thr)
+    def test_soft_merge_preserves_rows_and_full_content(self):
+        """P0: 合并只软归档，remove 行还在、全文在、status/merged_into 正确。"""
+        before = {r["key"]: r["content"] for r in self.db_new._conn.execute(
+            "SELECT key, content FROM memories").fetchall()}
+        r = self.db_new.deduplicate(threshold=0.85, max_seconds=None)
+        self.assertGreater(r["merged"], 0, "fixture must exercise the merge path")
+        self.assertEqual(r["removed"], 0, "P0 不允许物理删除")
+        for keep, remove in r["pairs"]:
+            row = self.db_new.peek(remove)
+            self.assertIsNotNone(row, "被合并行不能物理删除: %s" % remove)
+            self.assertEqual(row["status"], "merged")
+            self.assertEqual(row["merged_into"], keep)
+            self.assertIsNotNone(row["merged_at"])
+            # 被合并行自身全文原样保留
+            self.assertEqual(row["content"], before[remove])
+            # keep 行必须包含 remove 全文（不是 200 字截断）
+            keep_row = self.db_new.peek(keep)
+            self.assertIn(before[remove], keep_row["content"],
+                          "keep 行丢失了 %s 的全文" % remove)
+        events = self.db_new._conn.execute(
+            "SELECT keep_key, remove_key, old_content, new_content, "
+            "merged_content, sim, reason FROM merge_events").fetchall()
+        self.assertEqual(len(events), r["merged"])
+        for ev in events:
+            self.assertEqual(ev["reason"], "dedupe")
+            self.assertGreaterEqual(ev["sim"], 0.85)
+            self.assertTrue(ev["old_content"] and ev["new_content"] and ev["merged_content"])
+
+    def test_no_200_char_truncation(self):
+        """P0: 旧实现 content[:200] 截断必须消失。"""
+        long_remove = "R" * 500
+        long_keep = "K" * 400
+        self.db_new._conn.execute("DELETE FROM memories")
+        self.db_new._conn.execute(
+            "INSERT INTO memories(key, content, importance, vector, scope) VALUES(?,?,?,?, 'permanent')",
+            ("keep-long", long_keep, 0.9, json.dumps([1.0, 0.0, 0.0])))
+        self.db_new._conn.execute(
+            "INSERT INTO memories(key, content, importance, vector, scope) VALUES(?,?,?,?, 'permanent')",
+            ("remove-long", long_remove, 0.5, json.dumps([1.0, 0.0, 0.0])))
+        self.db_new._conn.commit()
+        r = self.db_new.deduplicate(threshold=0.85, max_seconds=None)
+        self.assertEqual(r["merged"], 1)
+        keep = self.db_new.peek("keep-long")
+        self.assertIn(long_remove, keep["content"], "remove 全文必须完整拼入 keep")
+        self.assertGreaterEqual(len(keep["content"]), len(long_keep) + len(long_remove))
+        removed = self.db_new.peek("remove-long")
+        self.assertEqual(removed["content"], long_remove)
+
+    def test_idempotent_second_run(self):
+        """P0: 连跑两次，第二次 merged=0，审计行不增长。"""
+        r1 = self.db_new.deduplicate(threshold=0.85, max_seconds=None)
+        self.assertGreater(r1["merged"], 0)
+        n_events = self.db_new._conn.execute(
+            "SELECT COUNT(*) FROM merge_events").fetchone()[0]
+        active = self.db_new._conn.execute(
+            "SELECT COUNT(*) FROM memories WHERE COALESCE(status,'active') != 'merged'"
+        ).fetchone()[0]
+        r2 = self.db_new.deduplicate(threshold=0.85, max_seconds=None)
+        self.assertEqual(r2["merged"], 0, "第二次必须没有新合并")
+        self.assertEqual(r2["pairs"], [])
+        self.assertEqual(self.db_new._conn.execute(
+            "SELECT COUNT(*) FROM merge_events").fetchone()[0], n_events)
+        self.assertEqual(self.db_new._conn.execute(
+            "SELECT COUNT(*) FROM memories WHERE COALESCE(status,'active') != 'merged'"
+        ).fetchone()[0], active)
+
+    def test_dry_run_writes_nothing(self):
+        """P0: dry_run 不 UPDATE、不 INSERT merge_events。"""
+        before_rows = [tuple(r) for r in self.db_new._conn.execute(
+            "SELECT key, content, importance, status, merged_into, merged_at "
+            "FROM memories ORDER BY key").fetchall()]
+        before_events = self.db_new._conn.execute(
+            "SELECT COUNT(*) FROM merge_events").fetchone()[0]
+        r = self.db_new.deduplicate(threshold=0.85, max_seconds=None, dry_run=True)
+        self.assertTrue(r["dry_run"])
+        self.assertGreater(r["merged"], 0, "dry_run 也应算出计划")
+        self.assertEqual(r["removed"], 0)
+        after_rows = [tuple(r) for r in self.db_new._conn.execute(
+            "SELECT key, content, importance, status, merged_into, merged_at "
+            "FROM memories ORDER BY key").fetchall()]
+        self.assertEqual(before_rows, after_rows)
+        self.assertEqual(self.db_new._conn.execute(
+            "SELECT COUNT(*) FROM merge_events").fetchone()[0], before_events)
+
+    def test_merge_events_created_at_is_cst(self):
+        """P0 收尾: merge_events.created_at 与库内其它时间列一致（CST, +8h）。
+
+        用 UTC 做参照：created_at - utcnow ≈ +8h。跨日由 timedelta 自然处理；
+        留 5 分钟抖动，避免测试恰好在整点/调度延迟时误报。
+        """
+        r = self.db_new.deduplicate(threshold=0.85, max_seconds=None)
+        self.assertGreater(r["merged"], 0, "fixture must exercise the merge path")
+        rows = self.db_new._conn.execute(
+            "SELECT created_at FROM merge_events").fetchall()
+        self.assertGreater(len(rows), 0)
+        utc_now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for row in rows:
+            created = datetime.strptime(row["created_at"], "%Y-%m-%d %H:%M:%S")
+            delta = created - utc_now
+            self.assertGreaterEqual(delta, timedelta(hours=7, minutes=55),
+                                    "created_at 比 UTC 早，疑似仍写 UTC: %s" % row["created_at"])
+            self.assertLessEqual(delta, timedelta(hours=8, minutes=5),
+                                 "created_at 偏移不是 +8h: %s" % row["created_at"])
 
     def test_fixture_actually_merges(self):
         r = self.db_new.deduplicate(threshold=0.85, max_seconds=None)

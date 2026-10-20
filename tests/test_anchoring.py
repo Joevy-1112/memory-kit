@@ -11,7 +11,8 @@
     relation=无关   → derived_from 保持 NULL
   - anchor=True + 无LLM(规则 fallback): 安静降级, source=rule, 仍写入不崩溃
   - anchor=False(默认): provenance 无 anchor 字段, derived_from 为 NULL(向后兼容)
-  - 断线修复: 向量/实体 merge 路径 → derived_from == 被折叠的 old_key
+  - 断线修复(P0 修正): 向量/实体 merge 路径 → derived_from 不得自指；
+    无 anchor 时保留旧值（NULL），有 anchor 且指向别的 key 时才写 anchor
   - set(derived_from=): 透传写入; 未传 → NULL
 
 运行:
@@ -239,7 +240,7 @@ class TestAnchorDefaultOff(unittest.TestCase):
 
 
 class TestDerivedFromPointer(unittest.TestCase):
-    """断线修复(08-24 审计): merge 路径补 derived_from 指针。"""
+    """P0 修正(2026-10-20): merge 路径 derived_from 不得自指（旧实现写 best["key"]）。"""
 
     def setUp(self):
         self.tmp = make_tmp_db()
@@ -263,8 +264,10 @@ class TestDerivedFromPointer(unittest.TestCase):
         r2 = self.db.learn("我的猫叫小鸡翅，是只银渐层", source="task", source_session="s2")
         self.assertTrue(r2["merged"])
         row = self.db.get(r1["key"])
-        self.assertEqual(row["derived_from"], r1["key"],
-                         "向量 merge 后 derived_from 应指向被折叠的旧记忆")
+        self.assertNotEqual(row["derived_from"], row["key"],
+                            "derived_from 不得指向自身 key（自指成环）")
+        self.assertIsNone(row["derived_from"],
+                          "无 anchor 的向量 merge 应保留旧值 NULL，而不是写 best['key']")
 
     def test_entity_fallback_merge_sets_derived_from(self):
         # 切到离线嵌入 → 实体去重兜底合并(需要 ≥3 实体重叠)
@@ -278,8 +281,10 @@ class TestDerivedFromPointer(unittest.TestCase):
             r2 = OffDb.learn(content, source="task", source_session="s2")
             self.assertTrue(r2["merged"])
             row = OffDb.get(r1["key"])
-            self.assertEqual(row["derived_from"], r1["key"],
-                             "实体 merge 后 derived_from 应指向被折叠的旧记忆")
+            self.assertNotEqual(row["derived_from"], row["key"],
+                                "derived_from 不得指向自身 key（自指成环）")
+            self.assertIsNone(row["derived_from"],
+                              "无 anchor 的实体 merge 应保留旧值 NULL，而不是写 best['key']")
         finally:
             OffDb.close()
 

@@ -104,7 +104,14 @@ CREATE TABLE IF NOT EXISTS memories (
     raw_excerpt TEXT DEFAULT NULL,
     evidence_source TEXT DEFAULT NULL,
     evidence_refs TEXT DEFAULT NULL,
-    vector_bin  BLOB DEFAULT NULL
+    vector_bin  BLOB DEFAULT NULL,
+    -- P0 数据保全（2026-10-20）: 合并只软归档, 不物理删。
+    -- status 默认 NULL = 活跃（不 UPDATE 存量行, COALESCE(status,'active') 判定）;
+    -- status='merged' 的行保留全文, 但检索/学习/去重/遗忘一律排除。
+    status       TEXT DEFAULT NULL,
+    merged_into  TEXT DEFAULT NULL,   -- status='merged' 时指向保留行 key
+    merged_at    TEXT DEFAULT NULL,
+    vector_stale INTEGER DEFAULT 0    -- 1=内容已变但重嵌失败; 候选扫描排除, 等 dirty 重嵌
 );
 
 CREATE TABLE IF NOT EXISTS entity_links (
@@ -278,6 +285,32 @@ CREATE TABLE IF NOT EXISTS governance_audit_events (
     created_at  TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_audit_batch ON governance_audit_events(batch_id);
+
+-- 合并审计（P0, 2026-10-20）：每一次软合并一行, 全文留痕, 可回溯/可计体积。
+-- old_content = keep 合并前全文; new_content = 被并入方全文;
+-- merged_content = 合并后 keep 全文。deduplicate 与 learn 两条路径都写。
+CREATE TABLE IF NOT EXISTS merge_events (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    keep_key       TEXT NOT NULL,
+    remove_key     TEXT NOT NULL DEFAULT '',
+    old_content    TEXT,
+    new_content    TEXT,
+    merged_content TEXT,
+    sim            REAL DEFAULT 0.0,
+    overlap        INTEGER DEFAULT 0,
+    boost          REAL DEFAULT 1.0,
+    relation       TEXT DEFAULT NULL,
+    anchored_key   TEXT DEFAULT NULL,
+    decision       TEXT NOT NULL DEFAULT 'MERGE',
+    reason         TEXT DEFAULT NULL,
+    would_veto     INTEGER DEFAULT 0,
+    -- CST（UTC+8）：与库内其它时间列一致；老库表保留旧 DEFAULT，
+    -- 两条合并写回路径都显式传 created_at，不依赖默认值。
+    created_at     TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_merge_events_keep ON merge_events(keep_key);
+CREATE INDEX IF NOT EXISTS idx_merge_events_remove ON merge_events(remove_key);
+CREATE INDEX IF NOT EXISTS idx_merge_events_created ON merge_events(created_at);
 """
 
 
@@ -393,6 +426,12 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             "ALTER TABLE memories ADD COLUMN raw_excerpt TEXT DEFAULT NULL",
             "ALTER TABLE memories ADD COLUMN evidence_source TEXT DEFAULT NULL",
             "ALTER TABLE memories ADD COLUMN evidence_refs TEXT DEFAULT NULL",
+            # P0 数据保全（2026-10-20）：老库升级。status 不设默认值/不 UPDATE
+            # 存量行，NULL 语义=活跃；merged_into/merged_at 只在软合并时写。
+            "ALTER TABLE memories ADD COLUMN status TEXT DEFAULT NULL",
+            "ALTER TABLE memories ADD COLUMN merged_into TEXT DEFAULT NULL",
+            "ALTER TABLE memories ADD COLUMN merged_at TEXT DEFAULT NULL",
+            "ALTER TABLE memories ADD COLUMN vector_stale INTEGER DEFAULT 0",
         ])
         # Knowledge nodes extensions
         self._migrate_columns("knowledge_nodes", [
@@ -737,6 +776,16 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             self._update_entity_links(rid, key, extracted)
         # Signal knowledge refresh needed — dirty 信号走 Python logging；
         # 配置了 dirty_log 路径时同时追加写该文件（兼容旧管线的文件轮询方式）
+        self._signal_dirty(key, rid, now)
+        return rid
+
+    def _signal_dirty(self, key: str, rid: int, now: str = None) -> None:
+        """写 dirty 信号：配置了 dirty_log 文件就追加，否则走 Python logging。
+
+        单一来源（P0, 2026-10-20）：set() 与 learn() 合并重嵌失败共用同一
+        格式/路径，避免出现两套 dirty 管线。
+        """
+        now = now or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if self.dirty_log:
             try:
                 with open(self.dirty_log, "a", encoding="utf-8") as f:
@@ -745,7 +794,6 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                 pass
         else:
             logger.debug("dirty: %s|%s|%s", key, rid, now)
-        return rid
 
     def get(self, key: str) -> dict | None:
         """Get a single entry by key. Updates accessed_at."""
@@ -770,7 +818,8 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
                tags: str = None, scope: str = None, layer: str = None,
                limit: int = 20, offset: int = 0) -> list[dict]:
         """Multi-condition search. Uses FTS5 for English, LIKE for Chinese."""
-        conditions = []
+        # P0（2026-10-20）：merged 行只做归档，检索一律排除（NULL=活跃）。
+        conditions = ["COALESCE(m.status,'active') != 'merged'"]
         params = []
 
         if query and query.strip():
@@ -894,6 +943,7 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             DELETE FROM memories WHERE
                 scope IN ('temp', 'session')
                 AND ttl IS NOT NULL
+                AND COALESCE(status,'active') != 'merged'
                 AND (julianday('now') - julianday(created_at)) * 86400 >= ttl
         """)
         self._conn.commit()
@@ -1020,6 +1070,7 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             SELECT id, key, content, confidence, source_session, provenance
             FROM memories
             WHERE verification_status IN ('pending', 'unverified')
+              AND COALESCE(status,'active') != 'merged'
             ORDER BY updated_at DESC
             LIMIT ?
         """, (limit,)).fetchall()
@@ -1377,6 +1428,8 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
 
         # Build SQL filters
         conditions = ["m.vector IS NOT NULL"]  # only entries with vectors
+        # P0（2026-10-20）：merged 行不参与语义检索。
+        conditions.append("COALESCE(m.status,'active') != 'merged'")
         params = []
         if category:
             conditions.append("m.category = ?"); params.append(category)
@@ -1453,7 +1506,8 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
         
         # First: migrate existing json vectors to binary
         json_rows = self._conn.execute(
-            "SELECT id, vector FROM memories WHERE vector IS NOT NULL AND vector_bin IS NULL"
+            "SELECT id, vector FROM memories WHERE vector IS NOT NULL "
+            "AND vector_bin IS NULL AND COALESCE(status,'active') != 'merged'"
         ).fetchall()
         migrated = 0
         with self._tx():
@@ -1472,7 +1526,8 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             logger.info("[backfill] migrated %d json vectors to binary", migrated)
         
         # Then: backfill missing vectors
-        sql = "SELECT id, key, content FROM memories WHERE vector IS NULL"
+        sql = ("SELECT id, key, content FROM memories WHERE vector IS NULL "
+               "AND COALESCE(status,'active') != 'merged'")
         params = ()
         if limit > 0:
             sql += " LIMIT ?"
@@ -2546,9 +2601,10 @@ def _cli():
 
     elif args.cmd == "deduplicate":
         r = db.deduplicate()
-        print(f"Merged {r['merged']} pairs, removed {r['removed']} entries.")
+        print(f"Merged {r['merged']} pairs, soft-merged {r['soft_merged']} rows, "
+              f"{r['removed']} physical deletes.")
         for keep, remove in r["pairs"]:
-            print(f"  Kept: {keep}  |  Removed: {remove}")
+            print(f"  Kept: {keep}  |  Merged away: {remove}")
 
     elif args.cmd == "compact":
         r = db.compact()

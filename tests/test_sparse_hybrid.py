@@ -4,7 +4,7 @@
 覆盖（任务 t_0e367b3a）：
   1. schema：新库建表含 sparse 列；旧库 _migrate_columns 自动补列
   2. learn()/learn_batch() 存 sparse（JSON {token_id_str: weight}）；set(sparse=)
-     upsert 覆盖语义；merge 去重保留旧 sparse（与 vector 同策略）
+     upsert 覆盖语义；P0 后 merge 会按合并全文重嵌 dense+sparse（不再保留旧值）
   3. search_multi lexical 融合：
      - 构造两条内容（dense 并列、FTS 无命中），一条 token 重叠多一条少，
        验证排序 + sparse_score 字段 + 归一化值
@@ -233,9 +233,10 @@ class TestSparseStore(unittest.TestCase):
         assert row is not None
         self.assertIsNone(row["sparse"])
 
-    def test_learn_merge_keeps_old_sparse(self):
-        # 两条内容 dense 恒同（常量向量）→ learn 必合并；sparse 与 vector
-        # 同策略：保留旧值不覆盖
+    def test_learn_merge_refreshes_sparse(self):
+        # 两条内容 dense 恒同（常量向量）→ learn 必合并；P0（2026-10-20）
+        # 合并后按 merged_content 重嵌，sparse 必须与合并全文一致，而不是
+        # 继续用旧 sparse（旧向量/旧 sparse 会让后续 lexical 匹配越合越偏）。
         a = "显卡掉驱动事件记录甲"
         b = "显卡掉驱动排查日志乙"
         r1 = self.db.learn(a)
@@ -247,7 +248,10 @@ class TestSparseStore(unittest.TestCase):
         self.assertEqual(r2["key"], key)
         row = self.db.get(key)
         assert row is not None
-        self.assertEqual(json.loads(row["sparse"]), sparse_a)
+        expected = self.emb.sparse_for(row["content"])
+        self.assertEqual(json.loads(row["sparse"]), expected)
+        self.assertNotEqual(json.loads(row["sparse"]), sparse_a,
+                            "合并后 sparse 不应还是旧内容的 sparse")
 
     def test_dense_only_embedder_stores_null_sparse(self):
         # 无 sparse 支持的 embedder → learn 不存 sparse（纯 dense 降级）

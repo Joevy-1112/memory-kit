@@ -58,16 +58,26 @@ class TestInit(unittest.TestCase):
     def test_default_path_is_cwd_memory_db(self):
         # DB_PATH 在 import 时求值（= 运行测试时的 cwd）。验证默认路径为
         # 当前目录下的 memory.db，并清理测试产物。
-        db = MemoryDB()
+        #
+        # P0 安全（2026-10-20）：测试套件可能带着 MEMORY_DB_PATH 指向沙箱库
+        # 运行。这里必须临时移除该变量；否则 MemoryDB() 会打开沙箱库，而
+        # finally 的 os.remove 会把沙箱库删掉（2026-10-20 已实际发生一次）。
+        from unittest import mock
+        expected = os.path.join(os.getcwd(), "memory.db")
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MEMORY_DB_PATH", None)
+            db = MemoryDB()
         try:
+            self.assertEqual(os.path.abspath(db.db_path), os.path.abspath(expected))
             self.assertEqual(os.path.basename(db.db_path), "memory.db")
             self.assertTrue(os.path.exists(db.db_path))
         finally:
             db.close()
-            try:
-                os.remove(db.db_path)
-            except OSError:
-                pass
+            if os.path.abspath(db.db_path) == os.path.abspath(expected):
+                try:
+                    os.remove(db.db_path)
+                except OSError:
+                    pass
 
     def test_custom_path(self):
         tmp = make_tmp_db()

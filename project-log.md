@@ -617,3 +617,19 @@ Qwen 调 memory_save 返回"已记住"(成功消息), 但快照库 /tmp/qwen38_m
   模型判"无关"仍合并。方案 A(灰带 0.85–0.92 放行锚定否决)待实施, Joe 说之后再说。
 - 环境: gh 设备码登录成功(Joevy-1112, repo/read:org/gist); 笔电连不上 github.com,
   服务器直连即可; 本地跑测试需 jieba(裸 python 会挂 14 条实体测试)。
+
+## 2026-10-20 P0 合并数据安全（sandbox 实施 + 甲方独立验收）
+
+- **实施方**：dsh，仓库 `/home/joe/memory-kit-v2`（基线 `ebe67fa` + 本次改动未提交）。
+- **改动范围**：`db.py`（`status/merged_into/merged_at/vector_stale` 四列 + `merge_events` 表 + 索引 + 老库 ALTER）、`lifecycle.py`（dedupe 重写 283-516、唯一写回点 `_merge_writeback` 1770-1835、两条 learn 合并路径补 5 列 SELECT）、`search.py`（候选排除 `status='merged'`）、三个测试文件改断言 + 新增 `tests/test_p0_data_safety.py`（16 用例）。diff：10 文件 642+/232-。
+- **甲方独立验收（Hermes，2026-10-20 09:0x）**：
+  - 自己复跑 `run_tests.py`：`Ran 275 tests / OK (skipped=2) / EXIT 0`，与 dsh 汇报一致。
+  - 自己造数据（复制沙箱库，两条 310 字不同文本、强行同向量）跑 `deduplicate(threshold=0.85)`：被合并行 `status='merged'`、`merged_into` 指向保留行、**全文 310 字完整保留**（旧实现会截到 200 字再物理 DELETE）；保留行 310→663 字；`merge_events` 新增行字段齐全（keep/remove/sim/overlap/boost/decision/reason + 三份内容长度）；`dry_run` 前后 `merge_events` 与 merged 行数均不变。
+- **dsh 自报的两个环境问题**（均属实）：
+  1. 生产库基线在开工时已被运行中的 Hermes 写过（`6055f4f0…` 120,360,960B → `da7f59ef…` 120,852,480B）。因此"生产库 sha256 未变"不能作为验收结论；改用「日志里对 `~/.hermes/memory.db` 零写操作」核对，通过（仅约束讨论中出现两次）。
+  2. `tests/test_smoke.py::test_default_path_is_cwd_memory_db` 会读 `MEMORY_DB_PATH` 并在 finally 里 `os.remove(db.db_path)`，把沙箱库当测试产物删掉。已从生产库 `.backup` 重建沙箱库（08:35，`66428129…`，120,721,408B，2100 行）并完成 P0 迁移（08:44，`64450135…`）。**原沙箱快照 `978dbe2e…` 不可恢复**。`test_smoke` 已改为临时 `pop("MEMORY_DB_PATH")`、断言 cwd/memory.db、删除前再校验绝对路径。
+- **超任务书增量，待 Joe 拍**：新增 `_critical_merge_mismatch()`（`lifecycle.py:80`）保守否决——数字冲突 / 同数不同单位 / 否定冲突时禁止合并；纯否决，不参与 `_fusion_score` 打分。依据实测 bge-m3：`显卡550 vs 650` cos 0.9434、`2GB vs 2048MB` 0.9178、`Python 3.10 vs 3.12` 0.9314，三条都过 0.85/0.92 闸门。数字子集（旧 550 + 新增显存 12G）仍允许合并。
+- **已知小缺陷**：`merge_events.created_at` 用 `datetime('now')` 是 UTC，库内其它时间列是 CST，审计时差 8 小时。
+- 生产仓库 `/home/joe/memory-kit` 与生产库 `~/.hermes/memory.db` 未被本次实施改动（仅被运行中的 Hermes 正常写入）。
+
+- **2026-10-20 09:01 Joe 拍板**：保留 `_critical_merge_mismatch()` 保守否决，作为 P0 已批准增量（不推迟到 P1）。P1 做统一决策点 `_merge_decision()` 时把它并进去，不要留两套判断并存。

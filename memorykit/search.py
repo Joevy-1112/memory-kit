@@ -259,6 +259,8 @@ class MemorySearch:
             return []
         tp = self._resolve_time_params(time_window, ref_time, max_age_days)
         conditions = ["m.vector IS NOT NULL"]
+        # P0（2026-10-20）：merged 行只做归档，不参与语义检索。
+        conditions.append("COALESCE(m.status,'active') != 'merged'")
         params = []
         if category: conditions.append("m.category = ?"); params.append(category)
         if scope: conditions.append("m.scope = ?"); params.append(scope)
@@ -287,7 +289,8 @@ class MemorySearch:
         if not self._is_embedding_available():
             return -1
         rows = self._conn.execute(
-            "SELECT id, key, content FROM memories WHERE vector IS NULL LIMIT ?",
+            "SELECT id, key, content FROM memories WHERE vector IS NULL "
+            "AND COALESCE(status,'active') != 'merged' LIMIT ?",
             (limit,)
         ).fetchall()
         count = 0
@@ -343,7 +346,8 @@ class MemorySearch:
         ) and any(c.isalpha() or c == "0" for c in query)
         if len(fts) == 0 and _is_code_query:
             # 兜底 LIKE 路径同样要按 category/scope 过滤（审查修复 #2）
-            like_conds = ["content LIKE ? OR key LIKE ?"]
+            like_conds = ["(content LIKE ? OR key LIKE ?)",
+                          "COALESCE(status,'active') != 'merged'"]
             like_params = [f"%{query}%", f"%{query}%"]
             if category:
                 like_conds.append("category = ?"); like_params.append(category)
@@ -389,7 +393,8 @@ class MemorySearch:
             # ValueError: inhomogeneous shape。
             qdim = int(qvec_np.size)
             # category/scope 过滤与 FTS 信号对齐（审查修复 #2）
-            sem_conds = ["vector IS NOT NULL"]
+            sem_conds = ["vector IS NOT NULL",
+                         "COALESCE(status,'active') != 'merged'"]
             sem_params = []
             if category:
                 sem_conds.append("category = ?"); sem_params.append(category)
@@ -441,7 +446,8 @@ class MemorySearch:
         tag_results = []
         q_lower, q_tokens = query.lower(), query.lower().split()
         # category/scope 过滤与 FTS 信号对齐（审查修复 #2）
-        tag_conds = ["(ttl IS NULL OR (julianday('now')-julianday(created_at))*86400 < ttl)"]
+        tag_conds = ["(ttl IS NULL OR (julianday('now')-julianday(created_at))*86400 < ttl)",
+                     "COALESCE(status,'active') != 'merged'"]
         tag_params = []
         if category:
             tag_conds.append("category = ?"); tag_params.append(category)
@@ -474,7 +480,9 @@ class MemorySearch:
             hits = {}
             for r in erows: hits.setdefault(r["memory_key"], []).append(r["entity"])
             for key, ents in sorted(hits.items(), key=lambda x: -len(x[1])):
-                row = self._conn.execute("SELECT * FROM memories WHERE key=?", (key,)).fetchone()
+                row = self._conn.execute(
+                    "SELECT * FROM memories WHERE key=? "
+                    "AND COALESCE(status,'active') != 'merged'", (key,)).fetchone()
                 if row:
                     d = dict(row)
                     # category/scope 过滤与 FTS 信号对齐（审查修复 #2）
@@ -490,7 +498,7 @@ class MemorySearch:
         import math as _math
         now_jd = self._conn.execute("SELECT julianday('now')").fetchone()[0]
         # category/scope 过滤与 FTS 信号对齐（审查修复 #2）
-        recency_conds = []
+        recency_conds = ["COALESCE(status,'active') != 'merged'"]
         recency_params = []
         if category:
             recency_conds.append("category = ?"); recency_params.append(category)
@@ -514,7 +522,8 @@ class MemorySearch:
         # 归一化：raw 除以候选池最大 raw（max-normalization，尺度无关）。
         _lex_norm: dict[str, float] = {}
         if qsparse:
-            _lex_conds = ["sparse IS NOT NULL", "sparse != ''"]
+            _lex_conds = ["sparse IS NOT NULL", "sparse != ''",
+                          "COALESCE(status,'active') != 'merged'"]
             _lex_params = []
             # category/scope 过滤与其它信号对齐（审查修复 #2 口径）
             if category:

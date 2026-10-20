@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import struct
 import time
 from datetime import datetime, timedelta
 
@@ -76,6 +77,55 @@ def _parse_ts(value) -> datetime | None:
     return None
 
 
+def _critical_merge_mismatch(old_content: str, new_content: str) -> bool:
+    """P0 保守否决：两条文本在关键事实（数字/单位/否定）上明显冲突时不许合并。
+
+    背景（2026-10-20）：`learn` 的向量闸门是 fusion>=0.85，`deduplicate`
+    默认 0.92；bge-m3 对 "显卡550" vs "显卡650" 的余弦实测 0.9434，
+    对 "2GB" vs "2048MB" 0.9178，对 "Python 3.10" vs "3.12" 0.9314。
+    光靠余弦会把"改了数字/单位/版本/否定"的两条记忆合并，属于误合并。
+
+    这里只做**否决**（不改 _fusion_score 公式，不参与打分）：
+      - 数字冲突：两边数字集合都非空，且各自都有对方没有的数字
+        （{550} vs {650}、{2} vs {2048}、{3.10} vs {3.12}）。
+        一边是另一边的子集（旧 550 + 新增显存 12G）→ 不否决，允许补充。
+      - 单位冲突：数字相同但单位集合不同（2GB vs 2MB、550块 vs 550元）。
+      - 否定冲突：一边有明确否定词、另一边没有
+        （"不能上线" vs "可以上线"）。
+    宁可少合并（新条目另存），不可错合并（内容被折叠后难以还原）。
+    """
+    a = str(old_content or "")
+    b = str(new_content or "")
+    if not a or not b or a == b:
+        return False
+
+    nums_a = set(re.findall(r"\d+(?:\.\d+)?", a))
+    nums_b = set(re.findall(r"\d+(?:\.\d+)?", b))
+    if nums_a and nums_b:
+        only_a = nums_a - nums_b
+        only_b = nums_b - nums_a
+        if only_a and only_b:
+            return True
+
+    # 单位只在"数字完全相同"时用来区分同数不同单位；数字不同由上面管。
+    unit_re = re.compile(
+        r"(?i)(?:\b(?:gb|mb|tb|kb|ghz|mhz|mah|kg|km|cm|mm|ml|hz|ms)\b"
+        r"|(?<![a-z])(?:g|m|t|v|w|a)(?![a-z])"
+        r"|℃|°c|%|％|块|元|美元|小时|分钟|天|年|月|日)")
+    units_a = {m.group(0).lower() for m in unit_re.finditer(a)}
+    units_b = {m.group(0).lower() for m in unit_re.finditer(b)}
+    if nums_a and nums_a == nums_b and units_a and units_b and units_a != units_b:
+        return True
+
+    neg_re = re.compile(
+        r"(?:不能|不会|不再|不是|没有|无法|禁止|不支持|不可|"
+        r"未通过|未完成|未验证|别用|\bnot\b|\bnever\b|\bno\b|"
+        r"cannot|can't|don't|doesn't)", re.I)
+    if bool(neg_re.search(a)) != bool(neg_re.search(b)):
+        return True
+    return False
+
+
 # learn() 预计算向量哨兵（learn_batch 批量路径用）：
 #   不传 precomputed_vec            → 单条原行为（learn 内部 _embed 嵌入）
 #   显式传 precomputed_vec=<向量>   → 跳过内部嵌入，直接用预计算向量
@@ -132,7 +182,8 @@ class MemoryLifecycle:
         rows = self._conn.execute(
             "SELECT key, importance, accessed_at, decay_profile, ttl, created_at, "
             "stale_since, water, category, verification_status "
-            "FROM memories WHERE scope='permanent'"
+            "FROM memories WHERE scope='permanent' "
+            "AND COALESCE(status,'active') != 'merged'"
         ).fetchall()
         now = datetime.now()
         counts = {"slow": 0, "medium": 0, "fast": 0}
@@ -204,7 +255,10 @@ class MemoryLifecycle:
                         # archived → 物理删：仅 water=2 可淘汰 + 非配置类 + stale_since 超期
                         if (water == 2 and r["category"] not in self.PROTECTED_CATEGORIES
                                 and stale_days > self.DELETE_AFTER_DAYS[profile]):
-                            self._conn.execute("DELETE FROM memories WHERE key=?", (r["key"],))
+                            self._conn.execute(
+                                "DELETE FROM memories WHERE key=? "
+                                "AND COALESCE(status,'active') != 'merged'",
+                                (r["key"],))
                             deleted += 1
                 elif status == "disputed":
                     # 环1 标记的争议记忆：钉住不参与 active→stale 转移（等 review），
@@ -226,33 +280,49 @@ class MemoryLifecycle:
         return {"decayed": total, "staled": staled, "archived": archived,
                 "deleted": deleted, "revived": revived, "profiles": counts}
 
-    def deduplicate(self, threshold=0.92, max_seconds=15.0):
-        """语义去重: 合并相似度 >= threshold 的条目。
+    def deduplicate(self, threshold=0.92, max_seconds=15.0, dry_run=False):
+        """语义去重: 合并相似度 >= threshold 的条目（P0 数据保全版, 2026-10-20）。
 
-        2026-10-16 性能重写（生产 turn 卡 24 分钟事故）。
-          旧实现：两层 for 里对**每一对**重新 json.loads 两个 1024 维向量 +
-          逐对纯 Python 余弦；N=2028 时 C(N,2)=2,055,378 对、实测
-          721 µs/对 → 约 24.7 分钟，而且整段包在写事务里，串在
-          commit_memory_session() 的同步链上。
-          新实现：每行向量只解析一次 → float32 数组；numpy 向量化算
-          "候选对"；合并顺序与合并判定仍完全沿用旧的贪心语义
-          （外层 i 升序、内层 j>i 升序、首中即 break，逐对用同一个
-          `self._cosine_similarity` 精确复核），因此同输入下产出的 pairs
-          与旧实现逐条一致（对照测试见 tests/test_dedupe_fast.py）。
-          max_seconds: 软截止。相似度扫描超时 → 本次不写库、返回 skipped，
-          并记一条可审计 warning，下个窗口再补；默认 15s，足以覆盖全量
-          2028 条的向量化扫描（实测 ~1s 量级）。
+        与旧实现的区别（旧实现 = 截断 200 字 + 物理 DELETE + 只跑一遍贪心）:
+
+        1. **不丢数据**: 被合并行不 DELETE, 改 `status='merged'` +
+           `merged_into=保留行 key` + `merged_at`; 全文保留, 可 `get/peek`
+           按 key 找回。保留行拼接被合并行**全文**（不再 `content[:200]`）。
+        2. **可审计**: 每个 (keep, remove) 写一行 `merge_events`, 含双方
+           合并前后全文、sim/overlap/boost、decision/reason。
+        3. **幂等**: 用相似度图的连通分量做一次性归并（不再"首中即 break"），
+           一轮后所有活跃行两两相似度都 < threshold；连跑第二次 merged=0。
+           传递闭包可能把 A~B~C 归成一组——这是"相似就合并"的语义代价,
+           但全文/审计行都在, 可人工回滚。
+        4. **dry_run**: 只算计划, 不 UPDATE、不 INSERT merge_events。
+
+        候选: vector IS NOT NULL 且 status 不是 merged 且 vector_stale=0。
+        vector_stale=1 表示内容已变但重嵌失败, 旧向量不可信, 不能参与
+        相似度判定（等 dirty 重嵌后再入池）。
+
+        返回字段:
+          merged      本次（或 dry_run 计划）折叠次数
+          soft_merged 同 merged（语义名, 区别于物理删除）
+          removed     物理删除数, 恒为 0
+          pairs       [(keep_key, remove_key), ...]
+          groups      发生合并的连通分量数
+          dry_run     是否干跑
         """
         t_start = time.monotonic()
         rows = self._conn.execute(
-            "SELECT id, key, content, importance, vector FROM memories "
-            "WHERE vector IS NOT NULL ORDER BY id"
+            "SELECT id, key, content, importance, vector, vector_bin, sparse, "
+            "status, vector_stale FROM memories "
+            "WHERE vector IS NOT NULL "
+            "AND COALESCE(status,'active') != 'merged' "
+            "AND COALESCE(vector_stale,0) = 0 "
+            "ORDER BY id"
         ).fetchall()
         n = len(rows)
 
-        # ── 1) 每行向量只解析一次（旧实现每对解析 2 次 = 4,110,756 次 json.loads）──
+        # ── 1) 每行向量只解析一次；优先 vector_bin（二进制）再回退 JSON ──
         skipped = False
         skip_reason = None
+        vetoed = 0  # 相似度够但关键事实冲突（数字/单位/否定）被否决的对数
         vecs = [None] * n
         for idx in range(n):
             if (max_seconds is not None and idx and (idx % 512 == 0)
@@ -260,93 +330,192 @@ class MemoryLifecycle:
                 skipped = True
                 skip_reason = "max_seconds_exceeded_during_vector_parse"
                 break
-            raw = rows[idx]["vector"]
-            if not raw:
-                continue
-            try:
-                v = json.loads(raw)
-            except Exception:
-                continue  # 畸形 JSON：旧实现逐对 continue，等价于跳过该行
-            if not isinstance(v, (list, tuple)) or len(v) == 0:
-                continue  # 空向量/非向量：旧实现 `if vi and vj` 为假 → 该对不参与
-            try:
-                arr = np.asarray(v, dtype=np.float32)
-            except Exception:
-                continue
-            if arr.ndim != 1:
+            raw_bin = rows[idx]["vector_bin"]
+            arr = None
+            if raw_bin is not None:
+                try:
+                    if len(raw_bin) % 4 == 0 and len(raw_bin) > 0:
+                        arr = np.frombuffer(raw_bin, dtype=np.float32)
+                except Exception:
+                    arr = None
+            if arr is None:
+                raw = rows[idx]["vector"]
+                if not raw:
+                    continue
+                try:
+                    v = json.loads(raw)
+                except Exception:
+                    continue  # 畸形 JSON：跳过该行
+                if not isinstance(v, (list, tuple)) or len(v) == 0:
+                    continue  # 空向量/非向量：不参与
+                try:
+                    arr = np.asarray(v, dtype=np.float32)
+                except Exception:
+                    continue
+            if arr is None or arr.ndim != 1 or arr.size == 0:
                 continue
             vecs[idx] = arr
 
         if skipped:
-            # 解析阶段就超预算：不建矩阵、不写库，记一条可审计日志
             logger.warning(
                 "deduplicate skipped (audit): reason=%s threshold=%s rows=%d "
                 "elapsed=%.3fs; no writes applied, retry next window",
                 skip_reason, threshold, n, time.monotonic() - t_start)
-            return {"merged": 0, "removed": 0, "pairs": [], "skipped": True,
-                    "reason": skip_reason, "n_vectors": 0,
+            return {"merged": 0, "soft_merged": 0, "removed": 0, "pairs": [],
+                    "groups": 0, "vetoed": 0, "dry_run": bool(dry_run),
+                    "skipped": True, "reason": skip_reason, "n_vectors": 0,
                     "elapsed_s": round(time.monotonic() - t_start, 3)}
 
         valid = [i for i in range(n) if vecs[i] is not None]
-        X = np.stack([vecs[i] for i in valid]).astype(np.float32) if valid else None
-        norms = np.linalg.norm(X, axis=1) if X is not None else None
 
-        # ── 2) 贪心合并顺序 —— 与旧实现完全一致 ──
+        # ── 2) 相似度图：所有 >= threshold 的边做 union-find ──
+        # 按向量维度分组（库里可能混有 1024d/2048d；跨维度余弦无意义）。
         EPS = 1e-4  # 仅用于筛候选（覆盖 BLAS 舍入）；最终判定仍用精确余弦
-        pairs = []
-        merge_ops = []  # (keep_key, keep_content, remove_key, remove_content, importance)
-        for i in range(n):
-            vi = vecs[i]
-            if vi is None:
+        parent = list(range(n))
+
+        def _find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def _union(a, b):
+            ra, rb = _find(a), _find(b)
+            if ra != rb:
+                parent[rb] = ra
+
+        by_dim = {}
+        for i in valid:
+            by_dim.setdefault(int(vecs[i].size), []).append(i)
+
+        for _dim, idxs in by_dim.items():
+            if len(idxs) < 2:
                 continue
-            if max_seconds is not None and (time.monotonic() - t_start) > max_seconds:
-                skipped = True
-                skip_reason = "max_seconds_exceeded_during_similarity_scan"
-                break
-            ni = float(np.linalg.norm(vi))
-            if ni == 0.0:
-                continue  # 旧实现 _cosine_similarity 对零向量返回 0.0 → 永不合并
-            with np.errstate(divide="ignore", invalid="ignore"):
-                sims = (X @ vi) / (norms * ni)
-            cand = np.nonzero(sims >= (threshold - EPS))[0]
-            for pos in cand:
-                j = valid[int(pos)]
-                if j <= i:
-                    continue
-                vj = vecs[j]
-                if vj is None:
-                    continue
-                if self._cosine_similarity(vi, vj) >= threshold:
-                    keep = rows[i] if rows[i]["importance"] >= rows[j]["importance"] else rows[j]
-                    remove = rows[j] if keep["key"] == rows[i]["key"] else rows[i]
-                    pairs.append((keep["key"], remove["key"]))
-                    merge_ops.append((keep["key"], keep["content"], remove["key"],
-                                      remove["content"],
-                                      max(keep["importance"], remove["importance"])))
+            X = np.stack([vecs[i] for i in idxs]).astype(np.float32)
+            norms = np.linalg.norm(X, axis=1)
+            for i in idxs:
+                if max_seconds is not None and (time.monotonic() - t_start) > max_seconds:
+                    skipped = True
+                    skip_reason = "max_seconds_exceeded_during_similarity_scan"
                     break
+                vi = vecs[i]
+                ni = float(np.linalg.norm(vi))
+                if ni == 0.0:
+                    continue  # 零向量永不合并
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    sims = (X @ vi) / (norms * ni)
+                cand = np.nonzero(sims >= (threshold - EPS))[0]
+                for pos in cand:
+                    j = idxs[int(pos)]
+                    if j <= i:
+                        continue
+                    if self._cosine_similarity(vi, vecs[j]) >= threshold:
+                        # P0 保守否决：数字/单位/否定冲突不合并（防止 550/650
+                        # 这类高余弦但事实不同的对误合并）。
+                        if _critical_merge_mismatch(rows[i]["content"],
+                                                    rows[j]["content"]):
+                            vetoed += 1
+                            continue
+                        _union(i, j)
+            if skipped:
+                break
 
         if skipped:
             logger.warning(
                 "deduplicate skipped (audit): reason=%s threshold=%s n_vectors=%d "
                 "elapsed=%.3fs; no writes applied, retry next window",
                 skip_reason, threshold, len(valid), time.monotonic() - t_start)
-            return {"merged": 0, "removed": 0, "pairs": [], "skipped": True,
-                    "reason": skip_reason, "n_vectors": len(valid),
+            return {"merged": 0, "soft_merged": 0, "removed": 0, "pairs": [],
+                    "groups": 0, "vetoed": vetoed, "dry_run": bool(dry_run),
+                    "skipped": True, "reason": skip_reason, "n_vectors": len(valid),
                     "elapsed_s": round(time.monotonic() - t_start, 3)}
 
-        # ── 3) 按同一顺序应用与旧实现逐条相同的 UPDATE/DELETE ──
-        removed = 0
-        with self._tx():
-            for keep_key, keep_content, remove_key, remove_content, imp in merge_ops:
-                nc = keep_content
-                if remove_content not in keep_content:
-                    nc += "\n\n[合并自: %s]\n%s" % (remove_key, remove_content[:200])
-                self._conn.execute("UPDATE memories SET content=?, importance=? WHERE key=?",
-                                   (nc, imp, keep_key))
-                self._conn.execute("DELETE FROM memories WHERE key=?", (remove_key,))
-                removed += 1
-        return {"merged": len(pairs), "removed": removed, "pairs": pairs,
-                "skipped": False, "reason": None, "n_vectors": len(valid),
+        # ── 3) 每个连通分量选一个保留行（importance 最高, 平票取小 id）──
+        groups = {}
+        for i in valid:
+            groups.setdefault(_find(i), []).append(i)
+
+        merge_ops = []
+        keep_final = {}
+        merged_groups = 0
+        for members in groups.values():
+            if len(members) < 2:
+                continue
+            merged_groups += 1
+            keep_idx = min(
+                members,
+                key=lambda x: (-(rows[x]["importance"] or 0.0), rows[x]["id"]))
+            keep_key = rows[keep_idx]["key"]
+            cur_content = rows[keep_idx]["content"] or ""
+            cur_imp = rows[keep_idx]["importance"] or 0.0
+
+            for m in sorted(members, key=lambda x: rows[x]["id"]):
+                if m == keep_idx:
+                    continue
+                mc = rows[m]["content"] or ""
+                old_content = cur_content
+                if mc and mc not in cur_content:
+                    cur_content = (cur_content + "\n\n[合并自: %s]\n%s"
+                                   % (rows[m]["key"], mc))
+                elif not cur_content:
+                    cur_content = mc
+                cur_imp = max(cur_imp, rows[m]["importance"] or 0.0)
+                sim = self._cosine_similarity(vecs[keep_idx], vecs[m])
+                merge_ops.append({
+                    "keep_key": keep_key,
+                    "remove_key": rows[m]["key"],
+                    "old_content": old_content,
+                    "new_content": mc,
+                    "merged_content": cur_content,
+                    "sim": max(-1.0, min(1.0, float(sim))),
+                    "overlap": 0,
+                    "boost": 1.0,
+                    "relation": None,
+                    "anchored_key": None,
+                    "decision": "MERGE",
+                    # 连通分量可能传递合并：成员与保留行的直接 sim 可能低于
+                    # threshold（A~B~C, A~C 低于阈值）。如实标注，避免审计
+                    # 行看起来像"低于阈值的合并"。
+                    "reason": ("dedupe" if sim >= threshold
+                               else "dedupe_transitive"),
+                    "would_veto": 0,
+                })
+            keep_final[keep_key] = (cur_content, cur_imp)
+
+        pairs = [(op["keep_key"], op["remove_key"]) for op in merge_ops]
+
+        # ── 4) 写库（dry_run 跳过）──
+        if not dry_run:
+            with self._tx():
+                for op in merge_ops:
+                    self._conn.execute(
+                        "INSERT INTO merge_events"
+                        "(keep_key, remove_key, old_content, new_content, "
+                        " merged_content, sim, overlap, boost, relation, "
+                        " anchored_key, decision, reason, would_veto, created_at) "
+                        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'))",
+                        (op["keep_key"], op["remove_key"], op["old_content"],
+                         op["new_content"], op["merged_content"], op["sim"],
+                         op["overlap"], op["boost"], op["relation"],
+                         op["anchored_key"], op["decision"], op["reason"],
+                         op["would_veto"]))
+                for keep_key, (content, imp) in keep_final.items():
+                    self._conn.execute(
+                        "UPDATE memories SET content=?, importance=?, "
+                        "updated_at=datetime('now','localtime') WHERE key=?",
+                        (content, imp, keep_key))
+                for op in merge_ops:
+                    self._conn.execute(
+                        "UPDATE memories SET status='merged', merged_into=?, "
+                        "merged_at=datetime('now','localtime'), "
+                        "updated_at=datetime('now','localtime') "
+                        "WHERE key=? AND COALESCE(status,'active') != 'merged'",
+                        (op["keep_key"], op["remove_key"]))
+
+        return {"merged": len(merge_ops), "soft_merged": len(merge_ops),
+                "removed": 0, "pairs": pairs, "groups": merged_groups,
+                "vetoed": vetoed, "dry_run": bool(dry_run), "skipped": False,
+                "reason": None, "n_vectors": len(valid),
                 "elapsed_s": round(time.monotonic() - t_start, 3)}
 
     def detect_conflicts(self):
@@ -380,11 +549,13 @@ class MemoryLifecycle:
         # 2026-08-02: 包 _tx，异常自动 rollback，防悬挂写事务
         with self._tx():
             d1 = self._conn.execute(
-                "UPDATE memories SET scope='archived' WHERE importance < 0.1 AND scope='permanent'"
+                "UPDATE memories SET scope='archived' WHERE importance < 0.1 "
+                "AND scope='permanent' AND COALESCE(status,'active') != 'merged'"
             ).rowcount
             d2 = self._conn.execute(
                 "DELETE FROM memories WHERE scope IN ('temp','session') AND ttl IS NOT NULL "
-                "AND (julianday('now')-julianday(created_at))*86400 >= ttl"
+                "AND (julianday('now')-julianday(created_at))*86400 >= ttl "
+                "AND COALESCE(status,'active') != 'merged'"
             ).rowcount
         return {"archived_low_imp": d1, "deleted_expired": d2}
 
@@ -590,7 +761,8 @@ class MemoryLifecycle:
         import json as _json
         rows = self._conn.execute(
             "SELECT id, key, category, content, importance, water, "
-            "verification_status, created_at, accessed_at FROM memories"
+            "verification_status, created_at, accessed_at FROM memories "
+            "WHERE COALESCE(status,'active') != 'merged'"
         ).fetchall()
         soft, hard, debt = [], [], []
         dup_groups: dict = {}
@@ -1102,16 +1274,18 @@ class MemoryLifecycle:
         if only_pending:
             # 查 provenance 中 v="pending" 或无 provenance 的记忆
             rows = self._conn.execute(
-                "SELECT key FROM memories WHERE provenance IS NULL "
+                "SELECT key FROM memories WHERE (provenance IS NULL "
                 "OR provenance = '' "
                 "OR provenance = '{}' "
-                "OR json_extract(provenance, '$.v') = 'pending' "
+                "OR json_extract(provenance, '$.v') = 'pending') "
+                "AND COALESCE(status,'active') != 'merged' "
                 "ORDER BY id LIMIT ?",
                 (limit,)
             ).fetchall()
         else:
             rows = self._conn.execute(
-                "SELECT key FROM memories ORDER BY id LIMIT ?",
+                "SELECT key FROM memories WHERE COALESCE(status,'active') != 'merged' "
+                "ORDER BY id LIMIT ?",
                 (limit,)
             ).fetchall()
 
@@ -1582,11 +1756,89 @@ class MemoryLifecycle:
 
 
         def _fusion_score(sim, overlap):
-            """向量+图解信号融合。乘性boost，Hindsight保守路线。"""
+            """向量+图解信号融合。乘性boost，Hindsight保守路线。
+
+            P0（2026-10-20）：只加日志，不改评分公式。每条候选的
+            sim/overlap/boost/最终 fusion 都打 debug，合并时 info 日志
+            再打一次，事后可从日志反推阈值命中原因。
+            """
             if overlap >= 2:
                 boost = 1.0 + 0.05 * min(overlap, 5)  # 2个→1.10, 5个→1.25
-                return min(sim * boost, 1.0)
-            return sim
+                fusion = min(sim * boost, 1.0)
+            else:
+                boost = 1.0
+                fusion = sim
+            logger.debug("[learn] fusion sim=%.4f overlap=%d boost=%.4f fusion=%.4f",
+                         sim, overlap, boost, fusion)
+            return fusion
+
+        def _merge_writeback(best, *, merged_content, new_imp, merged_sessions,
+                             merged_tags, category, entities_json,
+                             merged_event_time, merged_src_session_id,
+                             merged_src_msg_id, merged_msg_ids,
+                             merged_raw_excerpt, merged_derived_from, new_prov,
+                             sim, overlap, boost, reason):
+            """唯一合并写回点（P0, 2026-10-20）：向量/实体两条 learn 合并路径共用。
+
+            修复四个写回不变量：
+              1. 内容变了 → 事务外重嵌；成功写新 vector/vector_bin/sparse 且
+                 vector_stale=0；失败 vector_stale=1 + dirty 信号（旧向量保留）。
+              2. decay_profile 用 COALESCE(?, decay_profile)，不写死 None。
+              3. derived_from 由调用方算好（只在 anchor 指向别的 key 时才改），
+                 绝不写成本行 key 自指。
+              4. 每次合并写 merge_events 审计行（全文留痕）。
+            """
+            old_content = best.get("content") or ""
+            vec_json = vec_bin = sparse_json = None
+            vec_mode = 0  # 0=内容未变不写向量; 1=重嵌成功; 2=重嵌失败
+            if merged_content != old_content:
+                nvec, nsparse = self._embed_with_sparse(merged_content[:5000])
+                if nvec:
+                    vec_json = json.dumps(nvec)
+                    vec_bin = struct.pack(f'{len(nvec)}f', *nvec)
+                    sparse_json = json.dumps(nsparse) if nsparse else None
+                    vec_mode = 1
+                else:
+                    vec_mode = 2
+                    logger.warning(
+                        "[learn] 合并后重嵌失败 key=%s → vector_stale=1, 写 dirty 信号等待重嵌",
+                        best["key"])
+                    self._signal_dirty(best["key"], best["id"])
+            sets = [
+                "content=?", "importance=?", "accessed_at=datetime('now')",
+                "updated_at=datetime('now')", "source_session=?", "tags=?",
+                "category=?", "entities=?",
+                "decay_profile=COALESCE(?, decay_profile)", "provenance=?",
+                "event_time=?", "source_session_id=?", "source_msg_id=?",
+                "source_message_ids=?", "raw_excerpt=?", "derived_from=?",
+            ]
+            params = [merged_content, new_imp, merged_sessions,
+                      ",".join(merged_tags), category, entities_json,
+                      best.get("decay_profile"), new_prov, merged_event_time,
+                      merged_src_session_id, merged_src_msg_id,
+                      merged_msg_ids, merged_raw_excerpt, merged_derived_from]
+            if vec_mode == 1:
+                sets += ["vector=?", "vector_bin=?", "sparse=?", "vector_stale=0"]
+                params += [vec_json, vec_bin, sparse_json]
+            elif vec_mode == 2:
+                sets += ["vector_stale=1"]
+            else:
+                sets += ["vector_stale=COALESCE(vector_stale,0)"]
+            params.append(best["id"])
+            with self._tx():
+                self._conn.execute(
+                    "UPDATE memories SET " + ", ".join(sets) + " WHERE id=?",
+                    params)
+                self._conn.execute(
+                    "INSERT INTO merge_events"
+                    "(keep_key, remove_key, old_content, new_content, "
+                    " merged_content, sim, overlap, boost, relation, "
+                    " anchored_key, decision, reason, would_veto, created_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'))",
+                    (best["key"], "", old_content, content, merged_content,
+                     max(-1.0, min(1.0, float(sim))), int(overlap),
+                     max(1.0, float(boost)), None, None,
+                     "MERGE", reason, 0))
 
         # ── P1 经验锚定 (2026-08-29): 写入前 top-k 检索相似旧记忆, 标注关系 ──
         # 新记忆入库前检索 top-k 相似旧记忆, 让模型显式输出"与旧记忆X的关系
@@ -1628,10 +1880,12 @@ class MemoryLifecycle:
 
         # 主路径: 向量去重（嵌入在线时）
         if qvec:
-            import struct, numpy as np
+            # struct / numpy 已在模块顶部导入；这里不要再 import，否则
+            # `struct` 变成 learn() 的局部名，实体兜底路径调用
+            # _merge_writeback 时会 UnboundLocalError（P0, 2026-10-20）。
             qvec_np = np.array(qvec, dtype=np.float32)
             rows = self._conn.execute(
-                "SELECT id, key, content, importance, source_session, source_session_id, source_msg_id, vector, vector_bin, entities, tags, event_time FROM memories WHERE vector IS NOT NULL"
+                "SELECT id, key, content, importance, source_session, source_session_id, source_msg_id, vector, vector_bin, sparse, entities, tags, event_time, provenance, decay_profile, derived_from, source_message_ids, raw_excerpt FROM memories WHERE vector IS NOT NULL AND COALESCE(status,'active') != 'merged' AND COALESCE(vector_stale,0) = 0"
             ).fetchall()
             
             # Fast path: batch cosine over binary blobs
@@ -1676,6 +1930,10 @@ class MemoryLifecycle:
                         fusion = _fusion_score(sim, overlap)
                         if fusion >= 0.85:
                             matches.append((fusion, sim, overlap, dict(r)))
+            # P0 保守否决：关键事实冲突的候选不参与合并（另存新条目）。
+            matches = [m for m in matches
+                       if not _critical_merge_mismatch(
+                           (m[3].get("content") or ""), content)]
             if matches:
                 matches.sort(key=lambda x: x[0], reverse=True)
                 best = matches[0][3]
@@ -1695,18 +1953,20 @@ class MemoryLifecycle:
                     best.get("source_msg_id"), source_msg_id)
 
                 # ── 验证管线: 合并后仍标记 pending，等待交叉检查 ──
+                # P0 修复（2026-10-20）: 先存旧 v 再置 pending；原地改 dict，
+                # 不整体替换成 {"v":"pending"}（否则 vscore/sids/method 全丢）。
                 old_prov = best.get("provenance") or "{}"
                 old_verif = {}
                 try:
                     old_verif = json.loads(old_prov) if isinstance(old_prov, str) else old_prov
                 except (json.JSONDecodeError, TypeError):
                     old_verif = {}
-                # 如果之前已验证过，保留验证状态但标记需要重新验证
-                if old_verif.get("v") in ("verified", "degraded"):
-                    old_verif["v"] = "pending"  # 内容更新了，需重新验证
-                    old_verif["prev_v"] = old_verif.get("v")
-                else:
-                    old_verif = {"v": "pending"}
+                if not isinstance(old_verif, dict):
+                    old_verif = {}
+                _prev_v = old_verif.get("v")
+                if _prev_v in ("verified", "degraded"):
+                    old_verif["prev_v"] = _prev_v
+                old_verif["v"] = "pending"  # 内容更新了，需重新验证
                 if anchor_info is not None:
                     old_verif["anchor"] = anchor_info
                 new_prov = json.dumps(old_verif, ensure_ascii=False)
@@ -1753,20 +2013,26 @@ class MemoryLifecycle:
                 merged_raw_excerpt = _merge_raw_excerpt(best.get("raw_excerpt"),
                                                         raw_excerpt)
 
-                with self._tx():
-                    self._conn.execute("""
-                        UPDATE memories SET
-                            content=?, importance=?, accessed_at=datetime('now'),
-                            updated_at=datetime('now'), source_session=?,
-                            tags=?, category=?, entities=?, decay_profile=?, provenance=?,
-                            event_time=?, source_session_id=?, source_msg_id=?,
-                            source_message_ids=?, raw_excerpt=?, derived_from=?
-                        WHERE id=?
-                    """, (merged_content, new_imp, merged_sessions, ",".join(merged_tags),
-                          category, entities_json, None, new_prov, merged_event_time,
-                          merged_src_session_id, merged_src_msg_id,
-                          merged_msg_ids, merged_raw_excerpt,
-                          best["key"], best["id"]))
+                # ── derived_from: 只在 anchor 指向别的记忆时改；否则保留旧值 ──
+                # P1 #1 的旧实现把 best["key"] 传给 derived_from → 自指成环。
+                merged_derived_from = best.get("derived_from")
+                if anchor_derived_from and anchor_derived_from != best["key"]:
+                    merged_derived_from = anchor_derived_from
+
+                _merge_writeback(
+                    best, merged_content=merged_content, new_imp=new_imp,
+                    merged_sessions=merged_sessions, merged_tags=merged_tags,
+                    category=category, entities_json=entities_json,
+                    merged_event_time=merged_event_time,
+                    merged_src_session_id=merged_src_session_id,
+                    merged_src_msg_id=merged_src_msg_id,
+                    merged_msg_ids=merged_msg_ids,
+                    merged_raw_excerpt=merged_raw_excerpt,
+                    merged_derived_from=merged_derived_from,
+                    new_prov=new_prov,
+                    sim=matches[0][1], overlap=matches[0][2],
+                    boost=(matches[0][0] / matches[0][1] if matches[0][1] else 1.0),
+                    reason="vector_only")
                 if merged_entities:
                     # 实体关联表同步（与 set() 的 _update_entity_links 对齐）
                     try:
@@ -1774,8 +2040,10 @@ class MemoryLifecycle:
                     except Exception:
                         pass
                 merged = True
-                logger.info("[learn] merged into existing key=%s (fusion=%.3f, sim=%.3f, entity_overlap=%d, imp=%.2f→%.2f, verify=pending)",
-                            old_key, matches[0][0], matches[0][1], matches[0][2], old_imp, new_imp)
+                logger.info("[learn] merged into existing key=%s (fusion=%.3f, sim=%.3f, entity_overlap=%d, boost=%.3f, imp=%.2f→%.2f, verify=pending)",
+                            old_key, matches[0][0], matches[0][1], matches[0][2],
+                            (matches[0][0] / matches[0][1] if matches[0][1] else 1.0),
+                            old_imp, new_imp)
                 _episodic_touch()
                 v_status = _maybe_auto_verify(old_key, new_imp, merged_content)
                 return {"key": old_key, "category": category, "importance": new_imp,
@@ -1786,13 +2054,17 @@ class MemoryLifecycle:
         # 兜底: 嵌入离线 + 实体去重
         if not qvec and new_entities and len(new_entities) >= 3:
             rows = self._conn.execute(
-                "SELECT id, key, content, importance, source_session, source_session_id, source_msg_id, entities, tags, event_time FROM memories WHERE entities IS NOT NULL AND entities != 'null'"
+                "SELECT id, key, content, importance, source_session, source_session_id, source_msg_id, entities, tags, event_time, provenance, decay_profile, derived_from, source_message_ids, raw_excerpt FROM memories WHERE entities IS NOT NULL AND entities != 'null' AND COALESCE(status,'active') != 'merged'"
             ).fetchall()
             matches = []
             for r in rows:
                 overlap = _entity_overlap(new_entities, r["entities"])
                 if overlap >= 3:
                     matches.append((overlap, dict(r)))
+            # P0 保守否决：同向量路径，关键事实冲突的候选不合并。
+            matches = [m for m in matches
+                       if not _critical_merge_mismatch(
+                           (m[1].get("content") or ""), content)]
             if matches:
                 matches.sort(key=lambda x: x[0], reverse=True)
                 best = matches[0][1]
@@ -1812,16 +2084,19 @@ class MemoryLifecycle:
                     best.get("source_msg_id"), source_msg_id)
 
                 # ── 验证管线: 实体去重合并后也标记 pending ──
+                # P0 修复（2026-10-20）: 同向量路径——先存旧 v 再置 pending,
+                # 原地改 dict 保留 vscore/sids/method。
                 old_prov = best.get("provenance") or "{}"
                 try:
                     old_verif = json.loads(old_prov) if isinstance(old_prov, str) else old_prov
                 except (json.JSONDecodeError, TypeError):
                     old_verif = {}
-                if old_verif.get("v") in ("verified", "degraded"):
-                    old_verif["v"] = "pending"
-                    old_verif["prev_v"] = old_verif.get("v")
-                else:
-                    old_verif = {"v": "pending"}
+                if not isinstance(old_verif, dict):
+                    old_verif = {}
+                _prev_v = old_verif.get("v")
+                if _prev_v in ("verified", "degraded"):
+                    old_verif["prev_v"] = _prev_v
+                old_verif["v"] = "pending"
                 if anchor_info is not None:
                     old_verif["anchor"] = anchor_info
                 new_prov = json.dumps(old_verif, ensure_ascii=False)
@@ -1855,27 +2130,31 @@ class MemoryLifecycle:
                 merged_raw_excerpt = _merge_raw_excerpt(best.get("raw_excerpt"),
                                                         raw_excerpt)
 
-                with self._tx():
-                    self._conn.execute("""
-                        UPDATE memories SET
-                            content=?, importance=?, accessed_at=datetime('now'),
-                            updated_at=datetime('now'), source_session=?,
-                            tags=?, category=?, entities=?, decay_profile=?, provenance=?,
-                            event_time=?, source_session_id=?, source_msg_id=?,
-                            source_message_ids=?, raw_excerpt=?, derived_from=?
-                        WHERE id=?
-                    """, (merged_content, new_imp, merged_sessions, ",".join(merged_tags),
-                          category, entities_json, None, new_prov, merged_event_time,
-                          merged_src_session_id, merged_src_msg_id,
-                          merged_msg_ids, merged_raw_excerpt,
-                          best["key"], best["id"]))
+                # ── derived_from: 只在 anchor 指向别的记忆时改；否则保留旧值 ──
+                merged_derived_from = best.get("derived_from")
+                if anchor_derived_from and anchor_derived_from != best["key"]:
+                    merged_derived_from = anchor_derived_from
+
+                _merge_writeback(
+                    best, merged_content=merged_content, new_imp=new_imp,
+                    merged_sessions=merged_sessions, merged_tags=merged_tags,
+                    category=category, entities_json=entities_json,
+                    merged_event_time=merged_event_time,
+                    merged_src_session_id=merged_src_session_id,
+                    merged_src_msg_id=merged_src_msg_id,
+                    merged_msg_ids=merged_msg_ids,
+                    merged_raw_excerpt=merged_raw_excerpt,
+                    merged_derived_from=merged_derived_from,
+                    new_prov=new_prov,
+                    sim=0.0, overlap=matches[0][0],
+                    boost=1.0, reason="entity_only")
                 if merged_entities:
                     try:
                         self._update_entity_links(best["id"], old_key, merged_entities)
                     except Exception:
                         pass
                 merged = True
-                logger.info("[learn] entity-only merge into key=%s (overlap=%d, imp=%.2f→%.2f, verify=pending)",
+                logger.info("[learn] entity-only merge into key=%s (overlap=%d, boost=1.000, imp=%.2f→%.2f, verify=pending)",
                             old_key, matches[0][0], old_imp, new_imp)
                 _episodic_touch()
                 v_status = _maybe_auto_verify(old_key, new_imp, merged_content)
