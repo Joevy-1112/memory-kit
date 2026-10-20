@@ -93,6 +93,7 @@ vector_stale: 0          ← 而且没标记不可信
 
 已修（`lifecycle.py` §4 写库前预计算重嵌）：内容变了 → 重嵌 vector/vector_bin/sparse；
 失败 → `vector_stale=1` + dirty 信号。回归测试 `tests/test_p0_dedupe_rewrite.py`（4 用例）。
+**全套 371 tests OK (skipped=2)**，已部署到生产（bridge 每次调用新起进程，改完即生效）。
 
 ---
 
