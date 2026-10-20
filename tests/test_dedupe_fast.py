@@ -217,9 +217,12 @@ class TestDedupeParseOnce(unittest.TestCase):
 
         with mock.patch.object(json, "loads", side_effect=counting_loads):
             self.db.deduplicate(threshold=0.85, max_seconds=None)
-        # 新实现只解析一遍；旧实现是 2*C(N,2) 次
-        self.assertLessEqual(calls["n"], n_rows,
-                             "expected <= 1 parse/row, got %d for %d rows" % (calls["n"], n_rows))
+        # 新实现只解析一遍；旧实现是 2*C(N,2) 次。
+        # +1 余量：合并后重嵌（P0 补漏 2026-10-20）会额外解析一次 sparse 响应，
+        # 这是固定成本，不随行数增长；断言仍能捕获 O(N^2) 退化。
+        self.assertLessEqual(calls["n"], n_rows + 1,
+                             "expected <= 1 parse/row (+1 for re-embed), got %d for %d rows"
+                             % (calls["n"], n_rows))
         self.assertGreaterEqual(calls["n"], 1)
 
 
