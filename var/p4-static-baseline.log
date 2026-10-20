@@ -1,0 +1,39 @@
+# skills=248 system_chars=30515 items=29 dropped=[19]
+[1/29] 在服务器上把 Qwen3.8-27B 视觉模型（GGUF+mmpro... pred=['vlm-serving-pipeline', 'llama-cpp', 'local-gguf-serving'] hit=1 tokens=9761
+[2/29] 在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM 基准测... pred=['serving-llms-vllm', 'gpu-perf-benchmarking', 'remote-linux-admin'] hit=1 tokens=9854
+[3/29] 去笔电环境看看hermes网关怎么了 还有全局网络是不是被改成走cl... pred=['hermes-windows-proxy', 'hermes-usage'] hit=1 tokens=9799
+[4/29] 咱服务器的nv驱动 包在哪 拆一下？... pred=['headless-gpu-bringup', 'remote-linux-admin'] hit=1 tokens=9675
+[5/29] 逐skill比对Qwen3.8产出的迭代版skill清单与原版259... pred=['subagent-review-discipline', 'hermes-agent-skill-authoring', 'grounded-citations'] hit=2 tokens=9917
+[6/29] 如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。那我得到... pred=['gpt-review', 'humanizer'] hit=None tokens=9906
+[7/29] 现在dsh的memorykit是另外装的还是桥接的 工具呢 我想你们... pred=['dsh-plugins-profiles', 'dsh-harness', 'hermes-memory-plugin'] hit=1 tokens=9711
+[8/29] 那deepseekv4和gpt等不同模型的强弱 db如果记了不同时期... pred=['memory-system-ops', 'memory-db', 'merge-gate-design'] hit=1 tokens=9765
+[9/29] 上次报错的第几条nvlink 看看能不能单独掩码掉它... pred=['gpu-fault-diagnostics', 'sxm-gpu-carrier-board-design'] hit=1 tokens=9758
+[10/29] 咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测看跑推理... pred=['gpu-perf-benchmarking', 'v100-llm-inference'] hit=1 tokens=9695
+[11/29] 妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入... pred=['system-disk-space-triage', 'gpu-fault-diagnostics', 'server-hardware-ops'] hit=1 tokens=9814
+[12/29] pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会挂掉... pred=['server-hardware-ops', 'server-storage-ops'] hit=1 tokens=9872
+[13/29] 看到个视频 推理mi50 32g不如双mi50 16g 这时瓶颈在于... pred=['gpu-perf-benchmarking'] hit=1 tokens=9958
+[14/29] klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v100 加6... pred=['v100-llm-inference', 'local-gguf-serving', 'huggingface-hub'] hit=3 tokens=9753
+[15/29] 显存清空 更新llamacpp和dflash2 起qwen3.8... pred=['local-gguf-serving', 'llama-cpp'] hit=1 tokens=9671
+[16/29] 开cudagraph 这么慢咋够 另外上下文开的多少... pred=['local-gguf-serving', 'gpu-perf-benchmarking'] hit=1 tokens=9831
+[17/29] 别忘记给日志限流避免内核报错卡死系统盘... pred=['system-disk-space-triage', 'remote-linux-admin'] hit=1 tokens=9911
+[18/29] 很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm5.3f... pred=['hermes-config-management', 'llm-model-routing', 'hermes-usage'] hit=3 tokens=9785
+[19/29] 看看笔电的微信ilink网关是不是有问题 配置改回默认吧... pred=['wechat-gateway', 'hermes-config-management'] hit=1 tokens=9692
+[20/29] apikey也有了 你直接配就好了 但是要标准走这个key要clas... pred=['hermes-config-management', 'hermes-windows-proxy'] hit=1 tokens=9667
+[21/29] 帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLink 全... pred=['sxm-gpu-carrier-board-design', 'server-hardware-ops'] hit=1 tokens=9696
+[22/29] 耳机电池不行了 想改个 type-C 口... pred=['usb-reverse-engineering', 'robot-hardware-selection'] hit=None tokens=9919
+[23/29] 系统盘满了 帮我看看谁占的... pred=['system-disk-space-triage'] hit=1 tokens=9624
+[24/29] 怎么给六足机器人换舵机 要注意什么... pred=['robot-hardware-bringup', 'robot-hardware-selection', 'legged-robot-control-stack'] hit=2 tokens=9731
+[25/29] 记忆库合并的时候把不同内容误判成重复了 怎么排查... pred=['merge-gate-design', 'memory-system-ops', 'memory-db'] hit=1 tokens=9686
+[26/29] 飞书发的长消息老是显示不全... pred=['feishu-message-size-limits', 'feishu-gateway'] hit=1 tokens=9610
+[27/29] CI 红了 怎么判断是不是我改出来的... pred=['ci-failure-triage'] hit=1 tokens=9564
+[28/29] 训练小模型跑 RL 显存不够怎么办... pred=['local-llm-training', 'execution-feedback-rl-training'] hit=1 tokens=9722
+[29/29] 两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零头 是不... pred=['v100-llm-inference', 'gpu-perf-benchmarking', 'gpu-fault-diagnostics'] hit=1 tokens=9891
+
+## A 方案基线
+- skills=248 system_chars=30515 prompt_tokens/次≈9569.4
+- 可解析子集 n=29: R@1=79.31% R@3=93.1% MRR=0.8506
+- 严格口径 n=29（不可解析=0）: R@1=79.31% R@3=93.1% MRR=0.8506
+- 不可解析 0 条: []
+- tokens: prompt=277513 completion=5725 total=283238 cache_hit=270976
+
+# wrote /home/joe/memory-kit-v2/var/p4-static-baseline.json

@@ -5,16 +5,21 @@
 
 1. **切块**：frontmatter 单独成块；正文按 `^##` / `^###` 切；围栏代码块里的
    `##` 不切；单块 > 1200 字符再按空行二切（无空行时硬切）。
+   索引范围 = `SKILL.md` + `references/**/*.md`（`--no-include-references`
+   可退回只索引正文）；references 块统一 `chunk_type='reference'`。
 2. **索引**：`corpus_chunks` + `corpus_entity_links` + `corpus_manifest`，
    向量用 bge-m3（1024 维，`np.float32` blob），实体复用
    `MemoryDB._extract_entities` 并做小写归一 / 黑名单 / 全库 df>=2 过滤。
+   增量按文件 sha256 跳过未变源（SKILL.md 不重嵌）；`index --dry-run`
+   只扫描/切块报预计新增块数，不嵌入不写库。
 3. **召回**：`score = max(cos) + w_e * 命中实体数(封顶3) + w_l * lexical_norm`。
-   两个权重是占位值，**待 P4 消融**。
+   两个权重经 P4 E1 的 4 组网格检验；默认 0.10/0.25 保留（29 条样本不足以下调）。
 
 CLI：
-    python -m memorykit.corpus index --db var/memory-sandbox.db --root ~/.hermes/skills
-    python -m memorykit.corpus stats --db var/memory-sandbox.db
-    python -m memorykit.corpus query --db var/memory-sandbox.db "飞书回复被截断"
+    python -m memorykit.corpus --db var/memory-sandbox.db --include-references index --dry-run
+    python -m memorykit.corpus --db var/memory-sandbox.db index
+    python -m memorykit.corpus --db var/memory-sandbox.db stats
+    python -m memorykit.corpus --db var/memory-sandbox.db query "飞书回复被截断"
 """
 
 from __future__ import annotations
@@ -42,10 +47,14 @@ INDEX_VERSION = "p2-corpus-v1"
 MAX_CHUNK_CHARS = 1200
 DEFAULT_BATCH_SIZE = 8
 FRONTMATTER_HEADING = "frontmatter"
+# 来自 `references/**/*.md` 的块统一用这个 chunk_type，便于和 SKILL.md 的
+# frontmatter/heading/preamble 区分（分来源归因、`--include-references` 统计）。
+REFERENCE_CHUNK_TYPE = "reference"
 
-# 召回权重：占位值，待 P4 消融（见 REPORT-P2 的敏感性实验）
-W_ENTITY = 0.10   # 待 P4 消融
-W_LEXICAL = 0.25  # 待 P4 消融
+# 召回权重（P4 E1 网格：0/0、0/0.25、0.05/0.10、0.10/0.25）。
+# E1 上 (0,0.25) 略优但差异约 1-2 条 query；保留默认，等更大评测集再动。
+W_ENTITY = 0.10
+W_LEXICAL = 0.25
 ENTITY_CAP = 3
 
 DEFAULT_SKILLS_ROOT = os.environ.get(
@@ -374,6 +383,25 @@ def chunk_skill_text(text: str, skill_name: str = "",
     return chunks
 
 
+def chunk_reference_text(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list:
+    """把一份 references 文档切成 Chunk 列表。
+
+    复用 SKILL.md 的 fence-aware 切块规则（frontmatter/preamble/heading 的
+    内部结构照旧），但**所有块的 chunk_type 统一定为 `reference`**：来源
+    归属（正文 vs references）必须一眼可判，结构细节保留在 heading 里。
+    """
+    chunks = chunk_skill_text(text, "reference", max_chars)
+    for c in chunks:
+        c.chunk_type = REFERENCE_CHUNK_TYPE
+    return chunks
+
+
+def is_reference_path(rel: str) -> bool:
+    """相对 skills root 的路径是否属于某 skill 的 references/ 目录。"""
+    parts = Path(rel).parts
+    return len(parts) >= 3 and "references" in parts[:-1]
+
+
 def skill_name_for(path: Path, text: str) -> str:
     meta, _, _ = split_frontmatter(text)
     name = str(meta.get("name") or "").strip()
@@ -575,7 +603,8 @@ class CorpusIndex:
                  embedder=None, source_type: str = "skill",
                  max_chars: int = MAX_CHUNK_CHARS,
                  batch_size: int = DEFAULT_BATCH_SIZE,
-                 embedding_model: str = None, quiet: bool = False):
+                 embedding_model: str = None, quiet: bool = False,
+                 include_references: bool = True):
         chosen = db_path or os.environ.get("MEMORY_DB_PATH") or DEFAULT_DB_PATH
         if not chosen:
             raise ValueError(
@@ -586,6 +615,7 @@ class CorpusIndex:
         self.source_type = source_type
         self.max_chars = max_chars
         self.batch_size = max(1, int(batch_size))
+        self.include_references = bool(include_references)
         self.quiet = quiet
         self.embedder = embedder or HTTPEmbedder(timeout=120)
         self.embedding_model = embedding_model or detect_embedding_model(
@@ -613,17 +643,30 @@ class CorpusIndex:
 
     # ── 扫描 ────────────────────────────────────────────────────────────────
     def discover(self) -> list:
-        """返回 [(relative_path, Path), ...]，跳过任意层级的 .archive。"""
+        """返回 [(relative_path, Path), ...]，跳过任意层级的 .archive。
+
+        默认包含每个 skill 的 `SKILL.md` 与 `references/**/*.md`
+        （`include_references=False` 时只收 SKILL.md）。references 文件先按
+        所属 skill 目录聚合，保证不会把孤立目录当 skill。
+        """
         root = self.root
         if not root.exists():
             raise FileNotFoundError(f"skills root 不存在: {root}")
         found = []
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = sorted(d for d in dirnames if d != ".archive")
-            if "SKILL.md" in filenames:
-                p = Path(dirpath) / "SKILL.md"
-                rel = str(p.relative_to(root))
-                found.append((rel, p))
+            if "SKILL.md" not in filenames:
+                continue
+            p = Path(dirpath) / "SKILL.md"
+            found.append((str(p.relative_to(root)), p))
+            if not self.include_references:
+                continue
+            ref_dir = Path(dirpath) / "references"
+            if not ref_dir.is_dir():
+                continue
+            for ref in sorted(ref_dir.rglob("*.md")):
+                if ref.is_file():
+                    found.append((str(ref.relative_to(root)), ref))
         found.sort(key=lambda x: x[0])
         return found
 
@@ -646,19 +689,38 @@ class CorpusIndex:
         return f"{skill}\n{chunk.content}"
 
     def _embed_many(self, texts: list, progress=None) -> list:
-        """批量嵌入；失败项逐条重试，仍失败则抛错（不写半成品）。"""
+        """批量嵌入；整批失败退避重试，单条失败逐条重试，仍失败则抛错。
+
+        P4：`embed_batch` 已在内部按 ≤16 切批并做批间失败隔离，这里再包一层
+        退避重试（最多 3 次，2s/4s）。**整批全 None 视为服务级失败**，重试后
+        直接抛错而不是逐条打 8 个单请求——共享 8082 卡住时逐条重试只会雪上加
+        霜。只有"批里个别位置为 None"才逐条补，定位坏文本。
+        """
         out = [None] * len(texts)
         bs = self.batch_size
         for start in range(0, len(texts), bs):
             batch = texts[start:start + bs]
             got = None
-            if hasattr(self.embedder, "embed_batch"):
-                try:
-                    got = self.embedder.embed_batch(batch)
-                except Exception:
-                    got = None
-            if not isinstance(got, list) or len(got) != len(batch):
-                got = [None] * len(batch)
+            for attempt in range(3):
+                got = None
+                if hasattr(self.embedder, "embed_batch"):
+                    try:
+                        got = self.embedder.embed_batch(batch)
+                    except Exception:
+                        got = None
+                if (isinstance(got, list) and len(got) == len(batch)
+                        and any(v is not None for v in got)):
+                    break
+                if attempt < 2:
+                    wait = 2 * (attempt + 1)
+                    print(f"[index] 批次 {start // bs} 失败，{wait}s 后重试 "
+                          f"({attempt + 1}/3)", flush=True)
+                    time.sleep(wait)
+            if not isinstance(got, list) or len(got) != len(batch) \
+                    or all(v is None for v in got):
+                raise RuntimeError(
+                    f"嵌入整批失败（batch {start // bs}，{len(batch)} 条），"
+                    f"已重试 3 次；首个文本 {batch[0][:80]!r}")
             for j, vec in enumerate(got):
                 if vec is None:
                     try:
@@ -675,8 +737,44 @@ class CorpusIndex:
         return out
 
     # ── 主流程 ──────────────────────────────────────────────────────────────
+    def _skill_name_for_reference(self, rel: str) -> str:
+        """references 文件 → 所属 skill 的 frontmatter.name（无则目录名）。"""
+        parts = Path(rel).parts
+        try:
+            idx = parts.index("references")
+        except ValueError:
+            return Path(rel).parent.name
+        skill_dir = self.root.joinpath(*parts[:idx])
+        cache = getattr(self, "_skill_name_cache", None)
+        if cache is None:
+            cache = self._skill_name_cache = {}
+        key = str(skill_dir)
+        if key in cache:
+            return cache[key]
+        skill_md = skill_dir / "SKILL.md"
+        name = skill_dir.name
+        try:
+            if skill_md.is_file():
+                name = skill_name_for(
+                    skill_md,
+                    skill_md.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            pass
+        cache[key] = name
+        return name
+
+    def _chunks_for(self, rel: str, path: Path):
+        """按来源类型切块 → (skill_name, chunks, kind)。"""
+        text = _normalize_newlines(
+            path.read_text(encoding="utf-8", errors="replace"))
+        if is_reference_path(rel):
+            return (self._skill_name_for_reference(rel),
+                    chunk_reference_text(text, self.max_chars), "reference")
+        skill = skill_name_for(path, text)
+        return skill, chunk_skill_text(text, skill, self.max_chars), "skill"
+
     def index(self, force: bool = False, limit: int = None,
-              prune_entities: bool = True) -> dict:
+              prune_entities: bool = True, dry_run: bool = False) -> dict:
         t0 = time.time()
         all_files = self.discover()
         files = all_files[:limit] if limit else all_files
@@ -684,12 +782,14 @@ class CorpusIndex:
         current_paths = {rel for rel, _ in files}
 
         # 已删除/移出范围的源。`--limit` 只是抽样，不能把未扫描到的旧源
-        # 当成已删除（否则一次 limit 索引会清掉其余文件）。
+        # 当成已删除（否则一次 limit 索引会清掉其余文件）。dry-run 不落任何写。
         removed = ([] if limit else [p for p in old if p not in current_paths])
-        for rel in removed:
-            self._delete_source(rel)
-            self.conn.execute("DELETE FROM corpus_manifest WHERE path=?", (rel,))
-        self.conn.commit()
+        if removed and not dry_run:
+            for rel in removed:
+                self._delete_source(rel)
+                self.conn.execute(
+                    "DELETE FROM corpus_manifest WHERE path=?", (rel,))
+            self.conn.commit()
 
         changed = []
         skipped = 0
@@ -707,15 +807,55 @@ class CorpusIndex:
         # 先切块，得到准确的 total（空文件也进 manifest，chunk_count=0）
         jobs = []
         total_chunks = 0
+        seen = {}
         for rel, path, st, digest in changed:
-            text = _normalize_newlines(path.read_text(encoding="utf-8", errors="replace"))
-            skill = skill_name_for(path, text)
-            chunks = chunk_skill_text(text, skill, self.max_chars)
+            skill, chunks, kind = self._chunks_for(rel, path)
             jobs.append({
                 "rel": rel, "path": path, "stat": st, "sha256": digest,
-                "skill": skill, "chunks": chunks,
+                "skill": skill, "chunks": chunks, "kind": kind,
             })
             total_chunks += len(chunks)
+            slot = seen.setdefault(kind, {"files": 0, "chunks": 0})
+            slot["files"] += 1
+            slot["chunks"] += len(chunks)
+
+        scope = {"skill": {"files": 0, "chunks": 0},
+                 "reference": {"files": 0, "chunks": 0}}
+        for rel, _ in files:
+            scope["reference" if is_reference_path(rel) else "skill"]["files"] += 1
+
+        if dry_run:
+            existing_chunks = self.conn.execute(
+                "SELECT COUNT(*) FROM corpus_chunks WHERE source_type=?",
+                (self.source_type,)).fetchone()[0]
+            removed_chunks = sum(int(old[p]["chunk_count"]) for p in removed)
+            # 变更源是"整文件替换"：先删旧块再插新块，所以建后总数要减去
+            # 这些源在旧库里的块数（files_removed 只覆盖已删除的路径）。
+            replaced_chunks = sum(int(old[rel]["chunk_count"])
+                                  for rel, _, _, _ in changed if rel in old)
+            result = {
+                "dry_run": True,
+                "files_total": len(all_files),
+                "files_skill": scope["skill"]["files"],
+                "files_reference": scope["reference"]["files"],
+                "files_changed": len(jobs),
+                "files_skipped": skipped,
+                "files_removed": len(removed),
+                "chunks_new": total_chunks,
+                "chunks_existing": existing_chunks,
+                "chunks_removed": removed_chunks,
+                "chunks_replaced": replaced_chunks,
+                "chunks_total_after": (existing_chunks - replaced_chunks
+                                       + total_chunks - removed_chunks),
+                "changed_by_kind": seen,
+                "include_references": self.include_references,
+                "embedding_model": self.embedding_model,
+                "index_version": INDEX_VERSION,
+                "elapsed_s": round(time.time() - t0, 2),
+            }
+            if not self.quiet:
+                print(json.dumps(result, ensure_ascii=False), flush=True)
+            return result
 
         all_texts = []
         for job in jobs:
@@ -792,12 +932,16 @@ class CorpusIndex:
             (self.source_type,)).fetchone()[0]
         result = {
             "files_total": len(all_files),
+            "files_skill": scope["skill"]["files"],
+            "files_reference": scope["reference"]["files"],
             "files_indexed": len(jobs),
             "files_skipped": skipped,
             "files_removed": len(removed),
             "chunks_indexed": inserted_chunks,
+            "chunks_new_by_kind": seen,
             "chunks_total": total,
             "entity_links": links,
+            "include_references": self.include_references,
             "embedding_model": self.embedding_model,
             "index_version": INDEX_VERSION,
             "elapsed_s": round(time.time() - t0, 2),
@@ -860,6 +1004,15 @@ class CorpusIndex:
         out["chunks"] = self.conn.execute(
             "SELECT COUNT(*) FROM corpus_chunks WHERE source_type=?",
             (self.source_type,)).fetchone()[0]
+        out["reference_chunks"] = self.conn.execute(
+            "SELECT COUNT(*) FROM corpus_chunks WHERE source_type=? "
+            "AND chunk_type=?", (self.source_type, REFERENCE_CHUNK_TYPE)).fetchone()[0]
+        out["reference_files"] = self.conn.execute(
+            "SELECT COUNT(*) FROM corpus_manifest WHERE path LIKE '%references/%'"
+        ).fetchone()[0]
+        out["skill_files"] = self.conn.execute(
+            "SELECT COUNT(*) FROM corpus_manifest WHERE path LIKE '%SKILL.md'"
+        ).fetchone()[0]
         out["frontmatter_chunks"] = self.conn.execute(
             "SELECT COUNT(*) FROM corpus_chunks WHERE source_type=? "
             "AND chunk_type='frontmatter'", (self.source_type,)).fetchone()[0]
@@ -972,13 +1125,16 @@ class CorpusIndex:
 # ── CLI ───────────────────────────────────────────────────────────────────────
 def _cmd_index(args):
     with CorpusIndex(args.db, args.root, source_type=args.source_type,
-                     batch_size=args.batch_size, quiet=args.quiet) as ci:
-        result = ci.index(force=args.force, limit=args.limit)
+                     batch_size=args.batch_size, quiet=args.quiet,
+                     include_references=args.include_references) as ci:
+        result = ci.index(force=args.force, limit=args.limit,
+                          dry_run=args.dry_run)
     return 0
 
 
 def _cmd_stats(args):
-    with CorpusIndex(args.db, args.root, source_type=args.source_type) as ci:
+    with CorpusIndex(args.db, args.root, source_type=args.source_type,
+                     include_references=args.include_references) as ci:
         print(json.dumps(ci.stats(), ensure_ascii=False, indent=2))
     return 0
 
@@ -1009,12 +1165,20 @@ def build_parser():
     p.add_argument("--root", default=None,
                    help="skills 根目录（默认 ~/.hermes/skills）")
     p.add_argument("--source-type", default="skill")
+    p.add_argument("--include-references", dest="include_references",
+                   action="store_true", default=True,
+                   help="索引 references/**/*.md（默认 on）")
+    p.add_argument("--no-include-references", dest="include_references",
+                   action="store_false",
+                   help="只索引 SKILL.md（关闭 references）")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pi = sub.add_parser("index", help="增量建库")
     pi.add_argument("--force", action="store_true")
     pi.add_argument("--limit", type=int, default=None, help="只索引前 N 个文件")
     pi.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    pi.add_argument("--dry-run", action="store_true",
+                    help="只扫描/切块并报告预计新增块数，不嵌入、不写库")
     pi.add_argument("--quiet", action="store_true")
     pi.set_defaults(func=_cmd_index)
 

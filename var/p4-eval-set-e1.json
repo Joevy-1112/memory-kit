@@ -1,0 +1,273 @@
+{
+ "_meta": {
+  "说明": "P4 评测集 E1。real=从 ~/.hermes/state.db 真实 user 消息里筛的自包含 query（已去重、去掉对话延续类）；constructed=按 skill 语义手工构造的 query（真实分布里缺的领域）。expected=可接受命中集合（任一命中即算 recall@k 成功）。",
+  "筛选纪律": "real 条目只保留脱离对话上下文仍能独立理解的；凡依赖上一轮指代的（如『释放端口吧』『重启原因呢』）一律不入选。",
+  "生成时间": "2026-10-20",
+  "规模": 30,
+  "复核": "2026-10-20 12:10 甲方逐条 grep 复核: #18 标注修正, #19 标记 unreachable(剔除分母); 其余 28 条 ground truth 均能在对应 skill 目录找到实据"
+ },
+ "items": [
+  {
+   "id": 1,
+   "type": "real",
+   "q": "在服务器上把 Qwen3.8-27B 视觉模型（GGUF+mmproj，llama-server）拉起来，端口 8086，并做一次真实的看图测试验证",
+   "expected": [
+    "vlm-serving-pipeline",
+    "local-gguf-serving"
+   ]
+  },
+  {
+   "id": 2,
+   "type": "real",
+   "q": "在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM 基准测试脚本，拿到四个性能数字并原样回报，跑完清理残留进程",
+   "expected": [
+    "serving-llms-vllm",
+    "v100-llm-inference"
+   ]
+  },
+  {
+   "id": 3,
+   "type": "real",
+   "q": "去笔电环境看看hermes网关怎么了 还有全局网络是不是被改成走clash了 不开代理就没网",
+   "expected": [
+    "hermes-windows-proxy",
+    "hermes-usage"
+   ]
+  },
+  {
+   "id": 4,
+   "type": "real",
+   "q": "咱服务器的nv驱动 包在哪 拆一下？",
+   "expected": [
+    "headless-gpu-bringup",
+    "gpu-fault-diagnostics"
+   ]
+  },
+  {
+   "id": 5,
+   "type": "real",
+   "q": "逐skill比对Qwen3.8产出的迭代版skill清单与原版259个skill的实际内容, 产出覆盖核对/事实错误/迁移映射核对报告",
+   "expected": [
+    "hermes-agent-skill-authoring"
+   ]
+  },
+  {
+   "id": 6,
+   "type": "real",
+   "q": "如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。那我得到的东西是不是在亵渎她本人呢",
+   "expected": [
+    "local-llm-training",
+    "directml-lora-training"
+   ]
+  },
+  {
+   "id": 7,
+   "type": "real",
+   "q": "现在dsh的memorykit是另外装的还是桥接的 工具呢 我想你们的skill都能相互认",
+   "expected": [
+    "dsh-harness",
+    "dsh-plugins-profiles"
+   ]
+  },
+  {
+   "id": 8,
+   "type": "real",
+   "q": "那deepseekv4和gpt等不同模型的强弱 db如果记了不同时期片段 那召回时优先在前的是新事实还是旧事实 面对这类记忆有去重吗",
+   "expected": [
+    "memory-system-ops",
+    "memory-db"
+   ]
+  },
+  {
+   "id": 9,
+   "type": "real",
+   "q": "上次报错的第几条nvlink 看看能不能单独掩码掉它",
+   "expected": [
+    "gpu-fault-diagnostics"
+   ]
+  },
+  {
+   "id": 10,
+   "type": "real",
+   "q": "咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测看跑推理性能损失多少",
+   "expected": [
+    "gpu-perf-benchmarking",
+    "local-gguf-serving"
+   ]
+  },
+  {
+   "id": 11,
+   "type": "real",
+   "q": "妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入",
+   "expected": [
+    "system-disk-space-triage"
+   ]
+  },
+  {
+   "id": 12,
+   "type": "real",
+   "q": "pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会挂掉",
+   "expected": [
+    "server-hardware-ops",
+    "pc-build-planning"
+   ]
+  },
+  {
+   "id": 13,
+   "type": "real",
+   "q": "看到个视频 推理mi50 32g不如双mi50 16g 这时瓶颈在于算力不在带宽和显存 但如果瓶颈不一样结果就不同了吧",
+   "expected": [
+    "gpu-perf-benchmarking"
+   ]
+  },
+  {
+   "id": 14,
+   "type": "real",
+   "q": "klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v100 加64g内存呢",
+   "expected": [
+    "huggingface-hub",
+    "local-llm-training"
+   ]
+  },
+  {
+   "id": 15,
+   "type": "real",
+   "q": "显存清空 更新llamacpp和dflash2 起qwen3.8",
+   "expected": [
+    "local-gguf-serving"
+   ]
+  },
+  {
+   "id": 16,
+   "type": "real",
+   "q": "开cudagraph 这么慢咋够 另外上下文开的多少",
+   "expected": [
+    "local-gguf-serving"
+   ]
+  },
+  {
+   "id": 17,
+   "type": "real",
+   "q": "别忘记给日志限流避免内核报错卡死系统盘",
+   "expected": [
+    "system-disk-space-triage"
+   ]
+  },
+  {
+   "id": 18,
+   "type": "real",
+   "q": "很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm5.3f快点 为什么",
+   "expected": [
+    "memory-db",
+    "hermes-usage"
+   ],
+   "note": "复核修正: 原标 hermes-usage/llm-model-routing 有误; 内容实际在 memory-db/references/compaction-memory-hook.md"
+  },
+  {
+   "id": 19,
+   "type": "real",
+   "q": "softmax的过程精确位数是怎么定的",
+   "expected": [
+    "teaching-concepts-quiz"
+   ],
+   "unreachable": true,
+   "note": "复核发现: 活跃语料无 softmax 内容(仅 .archive 有), 属覆盖空档, 统计时从分母剔除"
+  },
+  {
+   "id": 20,
+   "type": "real",
+   "q": "看看笔电的微信ilink网关是不是有问题 配置改回默认吧",
+   "expected": [
+    "wechat-gateway"
+   ]
+  },
+  {
+   "id": 21,
+   "type": "real",
+   "q": "apikey也有了 你直接配就好了 但是要标准走这个key要clash代理",
+   "expected": [
+    "hermes-windows-proxy",
+    "hermes-config-management"
+   ]
+  },
+  {
+   "id": 22,
+   "type": "constructed",
+   "q": "帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLink 全互联，供电怎么算",
+   "expected": [
+    "sxm-gpu-carrier-board-design",
+    "server-hardware-ops"
+   ]
+  },
+  {
+   "id": 23,
+   "type": "constructed",
+   "q": "耳机电池不行了 想改个 type-C 口",
+   "expected": [
+    "windows-peripherals"
+   ],
+   "note": "已知覆盖空档，用于测天花板"
+  },
+  {
+   "id": 24,
+   "type": "constructed",
+   "q": "系统盘满了 帮我看看谁占的",
+   "expected": [
+    "system-disk-space-triage"
+   ]
+  },
+  {
+   "id": 25,
+   "type": "constructed",
+   "q": "怎么给六足机器人换舵机 要注意什么",
+   "expected": [
+    "robot-hardware-selection",
+    "legged-robot-control-stack"
+   ]
+  },
+  {
+   "id": 26,
+   "type": "constructed",
+   "q": "记忆库合并的时候把不同内容误判成重复了 怎么排查",
+   "expected": [
+    "merge-gate-design",
+    "memory-db"
+   ]
+  },
+  {
+   "id": 27,
+   "type": "constructed",
+   "q": "飞书发的长消息老是显示不全",
+   "expected": [
+    "feishu-message-size-limits"
+   ]
+  },
+  {
+   "id": 28,
+   "type": "constructed",
+   "q": "CI 红了 怎么判断是不是我改出来的",
+   "expected": [
+    "ci-failure-triage"
+   ]
+  },
+  {
+   "id": 29,
+   "type": "constructed",
+   "q": "训练小模型跑 RL 显存不够怎么办",
+   "expected": [
+    "local-llm-training",
+    "execution-feedback-rl-training"
+   ]
+  },
+  {
+   "id": 30,
+   "type": "constructed",
+   "q": "两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零头 是不是 NVLink 没通",
+   "expected": [
+    "gpu-fault-diagnostics",
+    "local-gguf-serving",
+    "v100-llm-inference"
+   ]
+  }
+ ]
+}

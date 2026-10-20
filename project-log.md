@@ -660,3 +660,17 @@ Qwen 调 memory_save 返回"已记住"(成功消息), 但快照库 /tmp/qwen38_m
 - **敏感性**：`w_e∈{0,0.10,0.25}` × `w_l∈{0,0.25,0.50}` × 5 query。3/5 query 的 top-1 技能会变，5/5 的 top-3 技能集合会变：`w_e=0` 让 strata 的 top-1 变错，`w_l=0.50` 让 V100 的 top-1 变错。**P4 消融不能省**；P4 建议实体 IDF + lexical IDF/BM25。
 - **测试**：P2 23 用例 OK；全量 **349 tests / OK (skipped=2)**。
 - **生产**：`~/.hermes/memory.db` 前后指纹一致（`69e09846…`，122,355,712 B，09:54:20），本次只读；未改 `/home/joe/memory-kit`、`~/.dsh`、运行中服务。
+
+## 2026-10-20 P4 修正轮（references 索引 + A/B 对照，sandbox）
+
+- **实施方**：dsh。`/home/joe/memory-kit-v2`，沙箱库 `var/memory-sandbox.db`，未提交。
+- **2.1 embed_batch（P0）**：`HTTPEmbedder.embed_batch_with_sparse` 内部按 ≤16 切批、`_post_batch` 单批、批间失败隔离；`db.py` 的两处裸 HTTP POST 也收口到 HTTPEmbedder；`corpus._embed_many` 整批失败退避 3 次后直接抛错（不再逐条打 8 个单请求）。新增 `tests/test_embedder_batching.py` 9 用例（100 条→7 批、单批异常只该批 None）。全量 **367 tests / OK (skipped=2)**。
+- **2.2 references**：`discover()` 扩到 `SKILL.md + references/**/*.md`，references 块 `chunk_type='reference'`、`source_id={skill}/references/{file}.md`、`skill_name` 取所属 SKILL.md；`--include-references` 默认 on；`index --dry-run` 不嵌入不写库。dry-run：12,179 新块（12,133 ref + 46 改动 SKILL.md），246 个 SKILL.md 跳过。全量 **2,746s / 4.43 chunks/s**，最终 **18,361 块**（6,228 SKILL + 12,133 ref）、1,222 ref 文件、498,889 实体链接；`integrity_check=ok`，memories 2,100。建完再 dry-run：0 changed / 1,470 skipped / 0 嵌入。
+- **偏差**：磁盘 1,226 ref 文件 vs 索引 1,222，差 4 个在 `windows-computer-use/windows-computer-use/references/`（无 SKILL.md 的嵌套重复目录，按"活跃 skill"口径排除）。6,225 块中 46 块重嵌，因为 2 个 SKILL.md 在 P2 后被编辑（hash 变了），不是全量重嵌。
+- **2.3 E1（29 条，#19 剔除）**：30 条口径复现甲方初测 **36.67 / 53.33 / MRR 0.4614**（初测 36.7/53.3/0.459）。默认权重、chunk 级：SKILL only 37.9/55.2/58.6/69.0 MRR 0.4744 → +references **44.8/62.1/72.4/82.8 MRR 0.5623**；skill 级 44.8/65.5/79.3/82.8 MRR 0.5775。本网格最优 B = all + skill 级 + (0,0.25)：**44.8/65.5/82.8/82.8 MRR 0.5920**。首次命中来源 16 SKILL / 13 ref；R@10 的 24 条命中里 12 条首次命中是 ref（top-10 中 ref 占 56.2%，低于其库存占比 66.1%）。7 条变好全由 ref 命中带来（#2/#6/#8/#13/#15/#18/#30），12 条被挤后。
+- **权重**：`(0,0.25)` 比默认 `(0.10,0.25)` 在 skill-only 上 +3.5 R@1/+6.9 R@3/+0.053 MRR，加 refs 后缩到 +0/+3.4/+0.015；差异约 1-2 条 query，**不改默认 0.10/0.25**。
+- **2.4 A 方案基线**：248 条完整 name+description（实测 30,079 字符，system prompt 30,515）进 system prompt，deepseek-flash 29 次。**R@1 79.31 / R@3 93.10 / MRR 0.8506**，0 条不可解析；real 80.0/95.0/0.8583，constructed 77.8/88.9/0.8333。Token：每次 prompt **9,569.4**，29 次 prompt 277,513 / completion 5,725 / total 283,238；cache hit 270,976（97.6%）、miss 6,537。
+- **A vs B**：R@1 −34.48、R@3 −27.58、MRR −0.2586（B best vs A）。上下文占用 B top-3 850 tok/query（省 91.1%）、top-10 3,093（省 67.7%）。**但按 cache-hit≈0.1×miss 的假设计价，A 每 query 约 1,160 计费等价 tok，对 B top-3 只贵 1.36×；对 B top-10 反而便宜（0.375×）**。B 的真实 query R@1 只有 30%，构造 query 77.8%——差在 query 理解，不在索引。A 的 R@3 93.1 仍高于 B 的 top-10 上限 82.8；下一步值得试"B top-10 预筛 + LLM 选择"（本轮未测）。
+- **补充 B 端到端**（`scripts/p4_b_llm.py`，不属于任务书必交）：检索 skill 级 top-10 候选 + 同一个 deepseek-flash 选 1-3 → **R@1 65.52 / R@3 75.86 / MRR 0.7069**，606 tok/query，0 不可解析；top-3 候选 → 55.17/62.07/0.5862，296 tok。候选含答案率 82.76%；5 条检索没召回到（#11/#17/#20/#14/#23），2 条候选内有但选错（#6/#18）。B 端到端拿到 A 的 82.6% R@1 / 81.5% R@3，用 6.3% 上下文。
+- **生产**：`~/.hermes/memory.db` 开工指纹 `0a5c975b…`（123,301,888B，12:07:37）；13:13 复核变为 `1f103dbf…`（mtime 13:07:59），`lsof` 显示 hermes(PID 2130) 持开该文件，变化由运行中的 Hermes 写入。本次所有命令都经 `MEMORY_DB_PATH` 指沙箱库，对生产库零写操作。8082 未重启，建库全程串行 ≤8 条/请求。
+- **产物**：`REPORT-P4-20261020.md`、`scripts/p4_e1_eval.py`、`scripts/p4_static_baseline.py`、`scripts/p4_compare.py`、`var/p4-*`。

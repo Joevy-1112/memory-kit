@@ -25,6 +25,14 @@ import urllib.request
 
 DEFAULT_EMBED_URL = os.environ.get("MEMORY_EMBED_URL", "http://127.0.0.1:8082")
 
+# 单次 /v1/embeddings 请求的文本条数上限（P4 事故修复）。
+#
+# llama.cpp 的 llama-server 对超大 input 数组会直接 decode 死锁
+# （`decode: cannot decode batches with this context`）：1103 条一次提交曾让
+# 共享 8082 半小时无响应。这里强制客户端内部分批 ≤16，逐批 POST；单批失败
+# 只让该批位置为 None，不牵连其他批（批间失败隔离）。
+EMBED_BATCH_LIMIT = 16
+
 
 class Embedder:
     """嵌入器接口：子类实现 embed() 与 is_available()。"""
@@ -51,6 +59,7 @@ class HTTPEmbedder(Embedder):
     def __init__(self, url: str = None, timeout: float = 5):
         self.url = (url or DEFAULT_EMBED_URL).rstrip("/")
         self.timeout = timeout
+        self.batch_limit = EMBED_BATCH_LIMIT
 
     def embed(self, text: str):
         """POST /v1/embeddings {"input": text, "model": "default"} → vector。"""
@@ -89,23 +98,67 @@ class HTTPEmbedder(Embedder):
             return None, None
 
     def embed_batch(self, texts: list) -> list:
-        """批量嵌入：一次 POST /v1/embeddings {"input": texts} 返回全部向量。
+        """批量嵌入：内部按 ≤16 条切批，逐批 POST，返回按输入顺序对齐的向量。
 
-        返回按输入顺序对齐的列表（与 texts 等长）；单条失败/过短（len(strip)<3）
-        对应位置为 None。服务端按 OpenAI 兼容协议返回 data[].index 时按 index 回填；
-        不返回 index 时按返回顺序回填（默认与提交顺序一致）。整体请求失败（服务
-        不可达/超时）→ 全部 None（与 embed() 失败返回 None 的降级语义一致）。
-
-        批量超时按条数放宽（大 batch 服务端推理耗时随条数增长），下限 30s。
+        返回列表与 texts 等长；单条失败/过短（len(strip)<3）对应位置为 None。
+        批次之间失败隔离：某一批请求失败（不可达/超时/响应不合法）只让该批
+        位置为 None，其他批照常返回。服务端按 OpenAI 兼容协议返回
+        data[].index 时按批内 index 回填；不返回 index 时按批内返回顺序回填。
         """
         pairs = self.embed_batch_with_sparse(texts)
         return [p[0] for p in pairs]
+
+    def _post_batch(self, clean: list) -> list:
+        """一次 POST 一批文本（调用方保证 len(clean) <= batch_limit）。
+
+        返回与 clean 同序的 [(dense, sparse)]。任何失败都抛异常，由
+        embed_batch_with_sparse 做批级隔离——这里不吞异常，避免把"整批失败"
+        误当成"这批每条都失败"。
+        """
+        data = json.dumps({"input": clean, "model": "default"}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.url}/v1/embeddings",
+            data=data,
+            headers={"Content-Type": "application/json"},
+        )
+        resp = urllib.request.urlopen(req, timeout=max(self.timeout, 30))
+        result = json.loads(resp.read())
+        data_list = result.get("data") or []
+        by_index = {}
+        has_index = False
+        for item in data_list:
+            if isinstance(item, dict) and isinstance(item.get("embedding"), list):
+                if item.get("index") is not None:
+                    has_index = True
+                    by_index[int(item["index"])] = item
+        batch_out = []
+        for j in range(len(clean)):
+            if has_index:
+                item = by_index.get(j)
+            elif j < len(data_list) and isinstance(data_list[j], dict):
+                item = data_list[j]
+            else:
+                item = None
+            if item is None:
+                batch_out.append((None, None))
+                continue
+            emb = item.get("embedding")
+            dense = emb if isinstance(emb, list) else None
+            sw = item.get("sparse_weights")
+            sparse = None
+            if isinstance(sw, dict) and sw:
+                sparse = {str(k): float(v) for k, v in sw.items()}
+            batch_out.append((dense, sparse))
+        return batch_out
 
     def embed_batch_with_sparse(self, texts: list) -> list:
         """批量嵌入 + sparse → 与 texts 等长、按输入顺序对齐的 [(dense, sparse)]。
 
         dense/sparse 语义与 embed_with_sparse 一致（服务端无 sparse_weights →
-        sparse=None；单条失败/过短 → (None, None)；整体请求失败 → 全 (None, None)）。
+        sparse=None；单条失败/过短 → (None, None)）。
+
+        分批：内部按 `batch_limit`（默认 EMBED_BATCH_LIMIT=16）切批，逐批同步
+        POST。批间失败隔离——某一批异常只让该批对应位置为 (None, None)。
         """
         if not texts:
             return []
@@ -116,42 +169,19 @@ class HTTPEmbedder(Embedder):
         if not clean:
             return out
         try:
-            data = json.dumps({"input": clean, "model": "default"}).encode("utf-8")
-            req = urllib.request.Request(
-                f"{self.url}/v1/embeddings",
-                data=data,
-                headers={"Content-Type": "application/json"},
-            )
-            resp = urllib.request.urlopen(req, timeout=max(self.timeout, 30))
-            result = json.loads(resp.read())
-            data_list = result.get("data") or []
-            by_index = {}
-            has_index = False
-            for item in data_list:
-                if isinstance(item, dict) and isinstance(item.get("embedding"), list):
-                    if item.get("index") is not None:
-                        has_index = True
-                        by_index[int(item["index"])] = item
-            for j, idx in enumerate(valid_idx):
-                if has_index:
-                    item = by_index.get(j)
-                elif j < len(data_list) and isinstance(data_list[j], dict):
-                    item = data_list[j]
-                else:
-                    item = None
-                if item is None:
-                    out[idx] = (None, None)
-                    continue
-                emb = item.get("embedding")
-                dense = emb if isinstance(emb, list) else None
-                sw = item.get("sparse_weights")
-                sparse = None
-                if isinstance(sw, dict) and sw:
-                    sparse = {str(k): float(v) for k, v in sw.items()}
-                out[idx] = (dense, sparse)
-            return out
+            limit = max(1, int(getattr(self, "batch_limit", EMBED_BATCH_LIMIT)))
         except Exception:
-            return [(None, None)] * len(texts)
+            limit = EMBED_BATCH_LIMIT
+        for start in range(0, len(clean), limit):
+            batch = clean[start:start + limit]
+            try:
+                got = self._post_batch(batch)
+            except Exception:
+                # 该批整体失败：只把该批位置留空，继续后面的批
+                continue
+            for j, idx in enumerate(valid_idx[start:start + len(batch)]):
+                out[idx] = got[j] if j < len(got) else (None, None)
+        return out
 
     def is_available(self) -> bool:
         try:

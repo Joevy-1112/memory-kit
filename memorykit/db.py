@@ -1210,48 +1210,15 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             return None
 
     def _embed_batch(self, texts: list) -> list:
-        """批量嵌入（默认 HTTP 实现）：一次 POST /v1/embeddings 嵌入多条。
+        """批量嵌入（默认 HTTP 实现）：返回与 texts 等长、按输入顺序对齐的向量。
 
-        learn_batch 批量路径使用：返回与 texts 等长、按输入顺序对齐的向量列表，
-        单条失败/过短（len(strip)<3）对应位置 None；整体请求失败 → 全 None
-        （与 _embed 失败返回 None 的降级语义一致）。超时放宽到 30s（大 batch
-        服务端推理耗时随条数增长）。
+        learn_batch 批量路径使用；单条失败/过短（len(strip)<3）对应位置 None。
+        实际分批与批间失败隔离在 `HTTPEmbedder.embed_batch`（≤16 条/请求，
+        P4 事故修复：超过 16 条一次 POST 会打死 llama.cpp 8082）。
         """
         if not texts:
             return []
-        valid_idx = [i for i, t in enumerate(texts) if t and len(str(t).strip()) >= 3]
-        clean = [texts[i] for i in valid_idx]
-        out: list = [None] * len(texts)
-        if not clean:
-            return out
-        try:
-            data = json.dumps({"input": clean, "model": "default"}).encode("utf-8")
-            req = urllib.request.Request(
-                f"{EMBEDDING_URL}/v1/embeddings",
-                data=data,
-                headers={"Content-Type": "application/json"}
-            )
-            resp = urllib.request.urlopen(req, timeout=30)
-            result = json.loads(resp.read())
-            data_list = result.get("data") or []
-            by_index = {}
-            has_index = False
-            for item in data_list:
-                if isinstance(item, dict) and isinstance(item.get("embedding"), list):
-                    if item.get("index") is not None:
-                        has_index = True
-                        by_index[int(item["index"])] = item["embedding"]
-            for j, idx in enumerate(valid_idx):
-                if has_index:
-                    emb = by_index.get(j)
-                elif j < len(data_list) and isinstance(data_list[j], dict):
-                    emb = data_list[j].get("embedding")
-                else:
-                    emb = None
-                out[idx] = emb if isinstance(emb, list) else None
-            return out
-        except Exception:
-            return [None] * len(texts)
+        return HTTPEmbedder(url=EMBEDDING_URL).embed_batch(texts)
 
     def _embed_with_sparse(self, text: str) -> tuple:
         """嵌入并解析 sparse_weights → (dense_vec, sparse_dict)。
@@ -1308,8 +1275,9 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
              monkey-patch）→ 用其批量得 dense，sparse=None（保持既有批量加速，
              learn_batch 零二次嵌入不变量）；
           3. 无批量实现 → 逐条 _embed_with_sparse；
-          4. 默认 HTTP 批量路径：一次 POST 解析 embedding + sparse_weights。
-        整体请求失败 → 全 (None, None)（与 _embed_batch 全 None 降级语义一致）。
+          4. 默认 HTTP 批量路径：委托 HTTPEmbedder.embed_batch_with_sparse
+             （≤16 条/请求、批间失败隔离）。
+        单批请求失败 → 该批 (None, None)，其他批不受影响。
         """
         impl = getattr(self, "_embed_batch_with_sparse_impl", None)
         if impl is not None:
@@ -1338,48 +1306,7 @@ class MemoryDB(MemorySearch, MemoryLifecycle):
             return [self._embed_with_sparse(t) for t in texts]
         if not texts:
             return []
-        valid_idx = [i for i, t in enumerate(texts) if t and len(str(t).strip()) >= 3]
-        clean = [texts[i] for i in valid_idx]
-        out: list = [(None, None)] * len(texts)
-        if not clean:
-            return out
-        try:
-            data = json.dumps({"input": clean, "model": "default"}).encode("utf-8")
-            req = urllib.request.Request(
-                f"{EMBEDDING_URL}/v1/embeddings",
-                data=data,
-                headers={"Content-Type": "application/json"}
-            )
-            resp = urllib.request.urlopen(req, timeout=30)
-            result = json.loads(resp.read())
-            data_list = result.get("data") or []
-            by_index = {}
-            has_index = False
-            for item in data_list:
-                if isinstance(item, dict) and isinstance(item.get("embedding"), list):
-                    if item.get("index") is not None:
-                        has_index = True
-                        by_index[int(item["index"])] = item
-            for j, idx in enumerate(valid_idx):
-                if has_index:
-                    item = by_index.get(j)
-                elif j < len(data_list) and isinstance(data_list[j], dict):
-                    item = data_list[j]
-                else:
-                    item = None
-                if item is None:
-                    out[idx] = (None, None)
-                    continue
-                emb = item.get("embedding")
-                dense = emb if isinstance(emb, list) else None
-                sw = item.get("sparse_weights")
-                sparse = None
-                if isinstance(sw, dict) and sw:
-                    sparse = {str(k): float(v) for k, v in sw.items()}
-                out[idx] = (dense, sparse)
-            return out
-        except Exception:
-            return [(None, None)] * len(texts)
+        return HTTPEmbedder(url=EMBEDDING_URL).embed_batch_with_sparse(texts)
 
     @staticmethod
     def _vector_dim_from_blob(blob) -> int:

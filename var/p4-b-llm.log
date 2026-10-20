@@ -1,0 +1,66 @@
+
+## k=3
+[1] 在服务器上把 Qwen3.8-27B 视觉模型（GGUF+m... pred=['vlm-serving-pipeline', 'local-gguf-serving'] hit=1 tok=396
+[2] 在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM... pred=['v100-llm-inference'] hit=1 tok=465
+[3] 去笔电环境看看hermes网关怎么了 还有全局网络是不是被改... pred=['hermes-usage', 'hermes-windows-proxy'] hit=1 tok=454
+[4] 咱服务器的nv驱动 包在哪 拆一下？... pred=['server-hardware-ops'] hit=None tok=375
+[5] 逐skill比对Qwen3.8产出的迭代版skill清单与原... pred=['subagent-review-discipline', 'pm-collab-log'] hit=None tok=426
+[6] 如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。... pred=['gpt-review', 'local-llm-training'] hit=2 tok=714
+[7] 现在dsh的memorykit是另外装的还是桥接的 工具呢 ... pred=['hermes-memory-db-ops', 'memory-system-ops'] hit=None tok=407
+[8] 那deepseekv4和gpt等不同模型的强弱 db如果记了... pred=['memory-system-ops', 'memory-db'] hit=1 tok=417
+[9] 上次报错的第几条nvlink 看看能不能单独掩码掉它... pred=['gpu-fault-diagnostics'] hit=1 tok=533
+[10] 咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测... pred=['local-gguf-serving'] hit=1 tok=431
+[11] 妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入... pred=['server-hardware-ops', 'memory-system-ops'] hit=None tok=458
+[12] pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会... pred=['server-hardware-ops', 'sxm-gpu-carrier-board-design'] hit=1 tok=432
+[13] 看到个视频 推理mi50 32g不如双mi50 16g 这时... pred=['pc-build-planning'] hit=None tok=435
+[14] klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v10... pred=['local-image-generation'] hit=None tok=507
+[15] 显存清空 更新llamacpp和dflash2 起qwen3... pred=['local-gguf-serving'] hit=1 tok=523
+[16] 开cudagraph 这么慢咋够 另外上下文开的多少... pred=['local-gguf-serving'] hit=1 tok=306
+[17] 别忘记给日志限流避免内核报错卡死系统盘... pred=['server-hardware-ops'] hit=None tok=487
+[18] 很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm... pred=['local-gguf-serving'] hit=None tok=408
+[19] 看看笔电的微信ilink网关是不是有问题 配置改回默认吧... pred=['hermes-memory-db-ops', 'memory-system-ops'] hit=None tok=381
+[20] apikey也有了 你直接配就好了 但是要标准走这个key要... pred=['hermes-openclaw-collaboration'] hit=None tok=544
+[21] 帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLi... pred=['sxm-gpu-carrier-board-design', 'server-hardware-ops'] hit=1 tok=433
+[22] 耳机电池不行了 想改个 type-C 口... pred=['personal-budget-and-purchases'] hit=None tok=508
+[23] 系统盘满了 帮我看看谁占的... pred=['system-disk-space-triage'] hit=1 tok=444
+[24] 怎么给六足机器人换舵机 要注意什么... pred=['robot-hardware-bringup', 'robot-hardware-selection'] hit=2 tok=344
+[25] 记忆库合并的时候把不同内容误判成重复了 怎么排查... pred=['merge-gate-design', 'memory-system-ops'] hit=1 tok=324
+[26] 飞书发的长消息老是显示不全... pred=['feishu-message-size-limits'] hit=1 tok=279
+[27] CI 红了 怎么判断是不是我改出来的... pred=['ci-failure-triage'] hit=1 tok=270
+[28] 训练小模型跑 RL 显存不够怎么办... pred=['execution-feedback-rl-training', 'local-llm-training'] hit=1 tok=285
+[29] 两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零... pred=['v100-llm-inference', 'local-gguf-serving', 'headless-gpu-bringup'] hit=1 tok=472
+k=3: R@1=55.17 R@3=62.07 MRR=0.5862 cand_recall@3=65.52 unparseable=0 prompt/query=296.1
+
+## k=10
+[1] 在服务器上把 Qwen3.8-27B 视觉模型（GGUF+m... pred=['vlm-serving-pipeline', 'local-gguf-serving', 'llama-cpp'] hit=1 tok=845
+[2] 在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM... pred=['serving-llms-vllm'] hit=1 tok=883
+[3] 去笔电环境看看hermes网关怎么了 还有全局网络是不是被改... pred=['hermes-windows-proxy', 'hermes-usage', 'pm-collab-log'] hit=1 tok=847
+[4] 咱服务器的nv驱动 包在哪 拆一下？... pred=['headless-gpu-bringup'] hit=1 tok=691
+[5] 逐skill比对Qwen3.8产出的迭代版skill清单与原... pred=['subagent-review-discipline', 'hermes-agent-skill-authoring'] hit=2 tok=848
+[6] 如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。... pred=['gpt-review', 'agent-thinking-patterns'] hit=None tok=807
+[7] 现在dsh的memorykit是另外装的还是桥接的 工具呢 ... pred=['dsh-plugins-profiles', 'dsh-harness', 'memory-db'] hit=1 tok=907
+[8] 那deepseekv4和gpt等不同模型的强弱 db如果记了... pred=['memory-system-ops', 'memory-db'] hit=1 tok=756
+[9] 上次报错的第几条nvlink 看看能不能单独掩码掉它... pred=['gpu-fault-diagnostics', 'pm-collab-log'] hit=1 tok=716
+[10] 咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测... pred=['gpu-perf-benchmarking', 'server-hardware-ops'] hit=1 tok=893
+[11] 妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入... pred=['server-storage-ops', 'server-hardware-ops'] hit=None tok=962
+[12] pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会... pred=['gpu-passthrough-vm', 'server-hardware-ops', 'sxm-gpu-carrier-board-design'] hit=2 tok=886
+[13] 看到个视频 推理mi50 32g不如双mi50 16g 这时... pred=['gpu-perf-benchmarking'] hit=1 tok=774
+[14] klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v10... pred=['local-image-generation', 'llm-model-routing', 'v100-llm-inference'] hit=None tok=1023
+[15] 显存清空 更新llamacpp和dflash2 起qwen3... pred=['local-gguf-serving', 'llama-cpp'] hit=1 tok=749
+[16] 开cudagraph 这么慢咋够 另外上下文开的多少... pred=['v100-llm-inference', 'local-gguf-serving'] hit=2 tok=729
+[17] 别忘记给日志限流避免内核报错卡死系统盘... pred=['server-storage-ops', 'server-hardware-ops'] hit=None tok=831
+[18] 很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm... pred=['gpu-perf-benchmarking', 'local-gguf-serving'] hit=None tok=827
+[19] 看看笔电的微信ilink网关是不是有问题 配置改回默认吧... pred=['hermes-usage', 'pm-collab-log'] hit=None tok=784
+[20] apikey也有了 你直接配就好了 但是要标准走这个key要... pred=['hermes-windows-proxy'] hit=1 tok=655
+[21] 帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLi... pred=['sxm-gpu-carrier-board-design', 'headless-gpu-bringup'] hit=1 tok=623
+[22] 耳机电池不行了 想改个 type-C 口... pred=['personal-budget-and-purchases'] hit=None tok=1061
+[23] 系统盘满了 帮我看看谁占的... pred=['system-disk-space-triage'] hit=1 tok=656
+[24] 怎么给六足机器人换舵机 要注意什么... pred=['robot-hardware-selection', 'robot-hardware-bringup', 'legged-robot-control-stack'] hit=1 tok=714
+[25] 记忆库合并的时候把不同内容误判成重复了 怎么排查... pred=['merge-gate-design', 'memory-system-ops', 'memory-db'] hit=1 tok=734
+[26] 飞书发的长消息老是显示不全... pred=['feishu-message-size-limits', 'dsh-feishu-bot'] hit=1 tok=695
+[27] CI 红了 怎么判断是不是我改出来的... pred=['ci-failure-triage'] hit=1 tok=553
+[28] 训练小模型跑 RL 显存不够怎么办... pred=['local-llm-training', 'execution-feedback-rl-training'] hit=1 tok=610
+[29] 两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零... pred=['v100-llm-inference', 'gpu-perf-benchmarking'] hit=1 tok=1080
+k=10: R@1=65.52 R@3=75.86 MRR=0.7069 cand_recall@10=82.76 unparseable=0 prompt/query=605.8
+
+# wrote /home/joe/memory-kit-v2/var/p4-b-llm.json

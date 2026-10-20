@@ -1,0 +1,2486 @@
+{
+  "method": "B 端到端：检索 top-k skill 候选 + deepseek-flash 选择",
+  "provider": "deepseek-v4-flash",
+  "model": "deepseek-v4-flash",
+  "scope": "all",
+  "weights": "0.00,0.25",
+  "n_items": 29,
+  "dropped_unreachable": [
+    19
+  ],
+  "results": {
+    "3": {
+      "metrics": {
+        "n": 29,
+        "r@1": 55.17,
+        "r@3": 62.07,
+        "mrr": 0.5862,
+        "candidate_recall_at_k": 65.52,
+        "n_unparseable": 0,
+        "tokens": {
+          "prompt": 8587,
+          "completion": 3871,
+          "total": 12458,
+          "avg_prompt": 296.1,
+          "avg_total": 429.6,
+          "cache_hit": 128,
+          "cache_miss": 8459
+        },
+        "elapsed_s": 36.9
+      },
+      "records": [
+        {
+          "id": 1,
+          "type": "real",
+          "q": "在服务器上把 Qwen3.8-27B 视觉模型（GGUF+mmproj，llama-server）拉起来，端口 8086，并做一次真实的看图测试验证",
+          "expected": [
+            "local-gguf-serving",
+            "vlm-serving-pipeline"
+          ],
+          "candidates": [
+            "llama-cpp",
+            "local-gguf-serving",
+            "vlm-serving-pipeline"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "vlm-serving-pipeline\nlocal-gguf-serving",
+          "predicted": [
+            "vlm-serving-pipeline",
+            "local-gguf-serving"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 291,
+            "completion_tokens": 105,
+            "total_tokens": 396,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 93
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 291
+          },
+          "prompt_tokens": 291,
+          "completion_tokens": 105,
+          "total_tokens": 396,
+          "latency_s": 1.32
+        },
+        {
+          "id": 2,
+          "type": "real",
+          "q": "在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM 基准测试脚本，拿到四个性能数字并原样回报，跑完清理残留进程",
+          "expected": [
+            "serving-llms-vllm",
+            "v100-llm-inference"
+          ],
+          "candidates": [
+            "headless-gpu-bringup",
+            "pm-collab-log",
+            "v100-llm-inference"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "v100-llm-inference",
+          "predicted": [
+            "v100-llm-inference"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 333,
+            "completion_tokens": 132,
+            "total_tokens": 465,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 124
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 333
+          },
+          "prompt_tokens": 333,
+          "completion_tokens": 132,
+          "total_tokens": 465,
+          "latency_s": 1.4
+        },
+        {
+          "id": 3,
+          "type": "real",
+          "q": "去笔电环境看看hermes网关怎么了 还有全局网络是不是被改成走clash了 不开代理就没网",
+          "expected": [
+            "hermes-usage",
+            "hermes-windows-proxy"
+          ],
+          "candidates": [
+            "hermes-usage",
+            "hermes-windows-proxy",
+            "memory-system-ops"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "hermes-usage\nhermes-windows-proxy",
+          "predicted": [
+            "hermes-usage",
+            "hermes-windows-proxy"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 289,
+            "completion_tokens": 165,
+            "total_tokens": 454,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 153
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 289
+          },
+          "prompt_tokens": 289,
+          "completion_tokens": 165,
+          "total_tokens": 454,
+          "latency_s": 1.61
+        },
+        {
+          "id": 4,
+          "type": "real",
+          "q": "咱服务器的nv驱动 包在哪 拆一下？",
+          "expected": [
+            "gpu-fault-diagnostics",
+            "headless-gpu-bringup"
+          ],
+          "candidates": [
+            "memory-system-ops",
+            "pm-collab-log",
+            "server-hardware-ops"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "server-hardware-ops",
+          "predicted": [
+            "server-hardware-ops"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 304,
+            "completion_tokens": 71,
+            "total_tokens": 375,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 65
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 304
+          },
+          "prompt_tokens": 304,
+          "completion_tokens": 71,
+          "total_tokens": 375,
+          "latency_s": 1.13
+        },
+        {
+          "id": 5,
+          "type": "real",
+          "q": "逐skill比对Qwen3.8产出的迭代版skill清单与原版259个skill的实际内容, 产出覆盖核对/事实错误/迁移映射核对报告",
+          "expected": [
+            "hermes-agent-skill-authoring"
+          ],
+          "candidates": [
+            "h3-video-generation",
+            "pm-collab-log",
+            "subagent-review-discipline"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "subagent-review-discipline\npm-collab-log",
+          "predicted": [
+            "subagent-review-discipline",
+            "pm-collab-log"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 316,
+            "completion_tokens": 110,
+            "total_tokens": 426,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 99
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 316
+          },
+          "prompt_tokens": 316,
+          "completion_tokens": 110,
+          "total_tokens": 426,
+          "latency_s": 1.19
+        },
+        {
+          "id": 6,
+          "type": "real",
+          "q": "如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。那我得到的东西是不是在亵渎她本人呢",
+          "expected": [
+            "directml-lora-training",
+            "local-llm-training"
+          ],
+          "candidates": [
+            "accountability-patterns",
+            "gpt-review",
+            "local-llm-training"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "gpt-review\nlocal-llm-training",
+          "predicted": [
+            "gpt-review",
+            "local-llm-training"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 2,
+          "usage": {
+            "prompt_tokens": 312,
+            "completion_tokens": 402,
+            "total_tokens": 714,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 392
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 312
+          },
+          "prompt_tokens": 312,
+          "completion_tokens": 402,
+          "total_tokens": 714,
+          "latency_s": 2.77
+        },
+        {
+          "id": 7,
+          "type": "real",
+          "q": "现在dsh的memorykit是另外装的还是桥接的 工具呢 我想你们的skill都能相互认",
+          "expected": [
+            "dsh-harness",
+            "dsh-plugins-profiles"
+          ],
+          "candidates": [
+            "hermes-memory-db-ops",
+            "llm-model-routing",
+            "memory-system-ops"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "hermes-memory-db-ops\nmemory-system-ops",
+          "predicted": [
+            "hermes-memory-db-ops",
+            "memory-system-ops"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 285,
+            "completion_tokens": 122,
+            "total_tokens": 407,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 108
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 285
+          },
+          "prompt_tokens": 285,
+          "completion_tokens": 122,
+          "total_tokens": 407,
+          "latency_s": 1.06
+        },
+        {
+          "id": 8,
+          "type": "real",
+          "q": "那deepseekv4和gpt等不同模型的强弱 db如果记了不同时期片段 那召回时优先在前的是新事实还是旧事实 面对这类记忆有去重吗",
+          "expected": [
+            "memory-db",
+            "memory-system-ops"
+          ],
+          "candidates": [
+            "hermes-memory-db-ops",
+            "memory-db",
+            "memory-system-ops"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "memory-system-ops\nmemory-db",
+          "predicted": [
+            "memory-system-ops",
+            "memory-db"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 347,
+            "completion_tokens": 70,
+            "total_tokens": 417,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 61
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 347
+          },
+          "prompt_tokens": 347,
+          "completion_tokens": 70,
+          "total_tokens": 417,
+          "latency_s": 1.12
+        },
+        {
+          "id": 9,
+          "type": "real",
+          "q": "上次报错的第几条nvlink 看看能不能单独掩码掉它",
+          "expected": [
+            "gpu-fault-diagnostics"
+          ],
+          "candidates": [
+            "gpu-fault-diagnostics",
+            "headless-gpu-bringup",
+            "pm-collab-log"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "gpu-fault-diagnostics",
+          "predicted": [
+            "gpu-fault-diagnostics"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 305,
+            "completion_tokens": 228,
+            "total_tokens": 533,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 221
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 305
+          },
+          "prompt_tokens": 305,
+          "completion_tokens": 228,
+          "total_tokens": 533,
+          "latency_s": 1.52
+        },
+        {
+          "id": 10,
+          "type": "real",
+          "q": "咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测看跑推理性能损失多少",
+          "expected": [
+            "gpu-perf-benchmarking",
+            "local-gguf-serving"
+          ],
+          "candidates": [
+            "local-gguf-serving",
+            "pc-build-planning",
+            "sxm-gpu-carrier-board-design"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "local-gguf-serving",
+          "predicted": [
+            "local-gguf-serving"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 305,
+            "completion_tokens": 126,
+            "total_tokens": 431,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 120
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 305
+          },
+          "prompt_tokens": 305,
+          "completion_tokens": 126,
+          "total_tokens": 431,
+          "latency_s": 1.28
+        },
+        {
+          "id": 11,
+          "type": "real",
+          "q": "妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入",
+          "expected": [
+            "system-disk-space-triage"
+          ],
+          "candidates": [
+            "headless-gpu-bringup",
+            "memory-system-ops",
+            "server-hardware-ops"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "server-hardware-ops\nmemory-system-ops",
+          "predicted": [
+            "server-hardware-ops",
+            "memory-system-ops"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 280,
+            "completion_tokens": 178,
+            "total_tokens": 458,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 167
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 280
+          },
+          "prompt_tokens": 280,
+          "completion_tokens": 178,
+          "total_tokens": 458,
+          "latency_s": 1.89
+        },
+        {
+          "id": 12,
+          "type": "real",
+          "q": "pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会挂掉",
+          "expected": [
+            "pc-build-planning",
+            "server-hardware-ops"
+          ],
+          "candidates": [
+            "pc-build-planning",
+            "server-hardware-ops",
+            "sxm-gpu-carrier-board-design"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "server-hardware-ops\nsxm-gpu-carrier-board-design",
+          "predicted": [
+            "server-hardware-ops",
+            "sxm-gpu-carrier-board-design"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 296,
+            "completion_tokens": 136,
+            "total_tokens": 432,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 121
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 296
+          },
+          "prompt_tokens": 296,
+          "completion_tokens": 136,
+          "total_tokens": 432,
+          "latency_s": 1.0
+        },
+        {
+          "id": 13,
+          "type": "real",
+          "q": "看到个视频 推理mi50 32g不如双mi50 16g 这时瓶颈在于算力不在带宽和显存 但如果瓶颈不一样结果就不同了吧",
+          "expected": [
+            "gpu-perf-benchmarking"
+          ],
+          "candidates": [
+            "h3-video-generation",
+            "memory-system-ops",
+            "pc-build-planning"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "pc-build-planning",
+          "predicted": [
+            "pc-build-planning"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 300,
+            "completion_tokens": 135,
+            "total_tokens": 435,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 130
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 300
+          },
+          "prompt_tokens": 300,
+          "completion_tokens": 135,
+          "total_tokens": 435,
+          "latency_s": 1.07
+        },
+        {
+          "id": 14,
+          "type": "real",
+          "q": "klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v100 加64g内存呢",
+          "expected": [
+            "huggingface-hub",
+            "local-llm-training"
+          ],
+          "candidates": [
+            "h3-video-generation",
+            "local-image-generation",
+            "pc-build-planning"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "local-image-generation",
+          "predicted": [
+            "local-image-generation"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 303,
+            "completion_tokens": 204,
+            "total_tokens": 507,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 200
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 303
+          },
+          "prompt_tokens": 303,
+          "completion_tokens": 204,
+          "total_tokens": 507,
+          "latency_s": 1.43
+        },
+        {
+          "id": 15,
+          "type": "real",
+          "q": "显存清空 更新llamacpp和dflash2 起qwen3.8",
+          "expected": [
+            "local-gguf-serving"
+          ],
+          "candidates": [
+            "local-gguf-serving",
+            "pm-collab-log",
+            "v100-llm-inference"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "local-gguf-serving",
+          "predicted": [
+            "local-gguf-serving"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 316,
+            "completion_tokens": 207,
+            "total_tokens": 523,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 201
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 316
+          },
+          "prompt_tokens": 316,
+          "completion_tokens": 207,
+          "total_tokens": 523,
+          "latency_s": 1.54
+        },
+        {
+          "id": 16,
+          "type": "real",
+          "q": "开cudagraph 这么慢咋够 另外上下文开的多少",
+          "expected": [
+            "local-gguf-serving"
+          ],
+          "candidates": [
+            "cc-analysis-handoff",
+            "local-gguf-serving",
+            "memory-system-ops"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "local-gguf-serving",
+          "predicted": [
+            "local-gguf-serving"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 271,
+            "completion_tokens": 35,
+            "total_tokens": 306,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 29
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 271
+          },
+          "prompt_tokens": 271,
+          "completion_tokens": 35,
+          "total_tokens": 306,
+          "latency_s": 0.63
+        },
+        {
+          "id": 17,
+          "type": "real",
+          "q": "别忘记给日志限流避免内核报错卡死系统盘",
+          "expected": [
+            "system-disk-space-triage"
+          ],
+          "candidates": [
+            "headless-gpu-bringup",
+            "pm-collab-log",
+            "server-hardware-ops"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "server-hardware-ops",
+          "predicted": [
+            "server-hardware-ops"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 304,
+            "completion_tokens": 183,
+            "total_tokens": 487,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 177
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 304
+          },
+          "prompt_tokens": 304,
+          "completion_tokens": 183,
+          "total_tokens": 487,
+          "latency_s": 1.6
+        },
+        {
+          "id": 18,
+          "type": "real",
+          "q": "很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm5.3f快点 为什么",
+          "expected": [
+            "hermes-usage",
+            "memory-db"
+          ],
+          "candidates": [
+            "local-gguf-serving",
+            "memory-db",
+            "memory-system-ops"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "local-gguf-serving",
+          "predicted": [
+            "local-gguf-serving"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 338,
+            "completion_tokens": 70,
+            "total_tokens": 408,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 64
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 338
+          },
+          "prompt_tokens": 338,
+          "completion_tokens": 70,
+          "total_tokens": 408,
+          "latency_s": 1.04
+        },
+        {
+          "id": 20,
+          "type": "real",
+          "q": "看看笔电的微信ilink网关是不是有问题 配置改回默认吧",
+          "expected": [
+            "wechat-gateway"
+          ],
+          "candidates": [
+            "cross-modal-vector-alignment",
+            "hermes-memory-db-ops",
+            "memory-system-ops"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "hermes-memory-db-ops\nmemory-system-ops",
+          "predicted": [
+            "hermes-memory-db-ops",
+            "memory-system-ops"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 281,
+            "completion_tokens": 100,
+            "total_tokens": 381,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 86
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 281
+          },
+          "prompt_tokens": 281,
+          "completion_tokens": 100,
+          "total_tokens": 381,
+          "latency_s": 1.2
+        },
+        {
+          "id": 21,
+          "type": "real",
+          "q": "apikey也有了 你直接配就好了 但是要标准走这个key要clash代理",
+          "expected": [
+            "hermes-config-management",
+            "hermes-windows-proxy"
+          ],
+          "candidates": [
+            "agent-reach",
+            "github",
+            "hermes-openclaw-collaboration"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "hermes-openclaw-collaboration",
+          "predicted": [
+            "hermes-openclaw-collaboration"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 309,
+            "completion_tokens": 235,
+            "total_tokens": 544,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 226
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 309
+          },
+          "prompt_tokens": 309,
+          "completion_tokens": 235,
+          "total_tokens": 544,
+          "latency_s": 1.56
+        },
+        {
+          "id": 22,
+          "type": "constructed",
+          "q": "帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLink 全互联，供电怎么算",
+          "expected": [
+            "server-hardware-ops",
+            "sxm-gpu-carrier-board-design"
+          ],
+          "candidates": [
+            "pc-build-planning",
+            "server-hardware-ops",
+            "sxm-gpu-carrier-board-design"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "sxm-gpu-carrier-board-design\nserver-hardware-ops",
+          "predicted": [
+            "sxm-gpu-carrier-board-design",
+            "server-hardware-ops"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 301,
+            "completion_tokens": 132,
+            "total_tokens": 433,
+            "prompt_tokens_details": {
+              "cached_tokens": 128
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 117
+            },
+            "prompt_cache_hit_tokens": 128,
+            "prompt_cache_miss_tokens": 173
+          },
+          "prompt_tokens": 301,
+          "completion_tokens": 132,
+          "total_tokens": 433,
+          "latency_s": 1.21
+        },
+        {
+          "id": 23,
+          "type": "constructed",
+          "q": "耳机电池不行了 想改个 type-C 口",
+          "expected": [
+            "windows-peripherals"
+          ],
+          "candidates": [
+            "personal-budget-and-purchases",
+            "sg2002-licheerv-nano",
+            "windows-system-diagnostics"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "personal-budget-and-purchases",
+          "predicted": [
+            "personal-budget-and-purchases"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 301,
+            "completion_tokens": 207,
+            "total_tokens": 508,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 199
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 301
+          },
+          "prompt_tokens": 301,
+          "completion_tokens": 207,
+          "total_tokens": 508,
+          "latency_s": 1.68
+        },
+        {
+          "id": 24,
+          "type": "constructed",
+          "q": "系统盘满了 帮我看看谁占的",
+          "expected": [
+            "system-disk-space-triage"
+          ],
+          "candidates": [
+            "hermes-memory-db-ops",
+            "server-storage-ops",
+            "system-disk-space-triage"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "system-disk-space-triage",
+          "predicted": [
+            "system-disk-space-triage"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 267,
+            "completion_tokens": 177,
+            "total_tokens": 444,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 170
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 267
+          },
+          "prompt_tokens": 267,
+          "completion_tokens": 177,
+          "total_tokens": 444,
+          "latency_s": 1.37
+        },
+        {
+          "id": 25,
+          "type": "constructed",
+          "q": "怎么给六足机器人换舵机 要注意什么",
+          "expected": [
+            "legged-robot-control-stack",
+            "robot-hardware-selection"
+          ],
+          "candidates": [
+            "legged-robot-control-stack",
+            "robot-hardware-bringup",
+            "robot-hardware-selection"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "robot-hardware-bringup\nrobot-hardware-selection",
+          "predicted": [
+            "robot-hardware-bringup",
+            "robot-hardware-selection"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 2,
+          "usage": {
+            "prompt_tokens": 256,
+            "completion_tokens": 88,
+            "total_tokens": 344,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 75
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 256
+          },
+          "prompt_tokens": 256,
+          "completion_tokens": 88,
+          "total_tokens": 344,
+          "latency_s": 0.97
+        },
+        {
+          "id": 26,
+          "type": "constructed",
+          "q": "记忆库合并的时候把不同内容误判成重复了 怎么排查",
+          "expected": [
+            "memory-db",
+            "merge-gate-design"
+          ],
+          "candidates": [
+            "agent-thinking-patterns",
+            "memory-system-ops",
+            "merge-gate-design"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "merge-gate-design\nmemory-system-ops",
+          "predicted": [
+            "merge-gate-design",
+            "memory-system-ops"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 279,
+            "completion_tokens": 45,
+            "total_tokens": 324,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 35
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 279
+          },
+          "prompt_tokens": 279,
+          "completion_tokens": 45,
+          "total_tokens": 324,
+          "latency_s": 0.83
+        },
+        {
+          "id": 27,
+          "type": "constructed",
+          "q": "飞书发的长消息老是显示不全",
+          "expected": [
+            "feishu-message-size-limits"
+          ],
+          "candidates": [
+            "agent-tool-integration",
+            "dsh-harness",
+            "feishu-message-size-limits"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "feishu-message-size-limits",
+          "predicted": [
+            "feishu-message-size-limits"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 270,
+            "completion_tokens": 9,
+            "total_tokens": 279,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 270
+          },
+          "prompt_tokens": 270,
+          "completion_tokens": 9,
+          "total_tokens": 279,
+          "latency_s": 0.69
+        },
+        {
+          "id": 28,
+          "type": "constructed",
+          "q": "CI 红了 怎么判断是不是我改出来的",
+          "expected": [
+            "ci-failure-triage"
+          ],
+          "candidates": [
+            "ci-failure-triage",
+            "local-llm-training",
+            "memory-system-ops"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "ci-failure-triage",
+          "predicted": [
+            "ci-failure-triage"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 264,
+            "completion_tokens": 6,
+            "total_tokens": 270,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 264
+          },
+          "prompt_tokens": 264,
+          "completion_tokens": 6,
+          "total_tokens": 270,
+          "latency_s": 0.87
+        },
+        {
+          "id": 29,
+          "type": "constructed",
+          "q": "训练小模型跑 RL 显存不够怎么办",
+          "expected": [
+            "execution-feedback-rl-training",
+            "local-llm-training"
+          ],
+          "candidates": [
+            "execution-feedback-rl-training",
+            "local-llm-training",
+            "local-video-generation"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "execution-feedback-rl-training\nlocal-llm-training",
+          "predicted": [
+            "execution-feedback-rl-training",
+            "local-llm-training"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 271,
+            "completion_tokens": 14,
+            "total_tokens": 285,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 271
+          },
+          "prompt_tokens": 271,
+          "completion_tokens": 14,
+          "total_tokens": 285,
+          "latency_s": 0.49
+        },
+        {
+          "id": 30,
+          "type": "constructed",
+          "q": "两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零头 是不是 NVLink 没通",
+          "expected": [
+            "gpu-fault-diagnostics",
+            "local-gguf-serving",
+            "v100-llm-inference"
+          ],
+          "candidates": [
+            "headless-gpu-bringup",
+            "local-gguf-serving",
+            "v100-llm-inference"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "v100-llm-inference\nlocal-gguf-serving\nheadless-gpu-bringup",
+          "predicted": [
+            "v100-llm-inference",
+            "local-gguf-serving",
+            "headless-gpu-bringup"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 293,
+            "completion_tokens": 179,
+            "total_tokens": 472,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 157
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 293
+          },
+          "prompt_tokens": 293,
+          "completion_tokens": 179,
+          "total_tokens": 472,
+          "latency_s": 1.43
+        }
+      ]
+    },
+    "10": {
+      "metrics": {
+        "n": 29,
+        "r@1": 65.52,
+        "r@3": 75.86,
+        "mrr": 0.7069,
+        "candidate_recall_at_k": 82.76,
+        "n_unparseable": 0,
+        "tokens": {
+          "prompt": 17567,
+          "completion": 5572,
+          "total": 23139,
+          "avg_prompt": 605.8,
+          "avg_total": 797.9,
+          "cache_hit": 128,
+          "cache_miss": 17439
+        },
+        "elapsed_s": 44.2
+      },
+      "records": [
+        {
+          "id": 1,
+          "type": "real",
+          "q": "在服务器上把 Qwen3.8-27B 视觉模型（GGUF+mmproj，llama-server）拉起来，端口 8086，并做一次真实的看图测试验证",
+          "expected": [
+            "local-gguf-serving",
+            "vlm-serving-pipeline"
+          ],
+          "candidates": [
+            "agent-thinking-patterns",
+            "headless-gpu-bringup",
+            "llama-cpp",
+            "llm-model-routing",
+            "local-gguf-serving",
+            "memory-db",
+            "pm-collab-log",
+            "qwen3-vl-video-understanding",
+            "v100-llm-inference",
+            "vlm-serving-pipeline"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "vlm-serving-pipeline\nlocal-gguf-serving\nllama-cpp",
+          "predicted": [
+            "vlm-serving-pipeline",
+            "local-gguf-serving",
+            "llama-cpp"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 649,
+            "completion_tokens": 196,
+            "total_tokens": 845,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 179
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 649
+          },
+          "prompt_tokens": 649,
+          "completion_tokens": 196,
+          "total_tokens": 845,
+          "latency_s": 1.45
+        },
+        {
+          "id": 2,
+          "type": "real",
+          "q": "在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM 基准测试脚本，拿到四个性能数字并原样回报，跑完清理残留进程",
+          "expected": [
+            "serving-llms-vllm",
+            "v100-llm-inference"
+          ],
+          "candidates": [
+            "headless-gpu-bringup",
+            "llama-cpp",
+            "llm-model-routing",
+            "local-gguf-serving",
+            "pm-collab-log",
+            "retrieval-benchmarking",
+            "serving-llms-vllm",
+            "v100-llm-inference",
+            "vlm-serving-pipeline",
+            "windows-system-diagnostics"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "serving-llms-vllm",
+          "predicted": [
+            "serving-llms-vllm"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 575,
+            "completion_tokens": 308,
+            "total_tokens": 883,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 299
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 575
+          },
+          "prompt_tokens": 575,
+          "completion_tokens": 308,
+          "total_tokens": 883,
+          "latency_s": 2.24
+        },
+        {
+          "id": 3,
+          "type": "real",
+          "q": "去笔电环境看看hermes网关怎么了 还有全局网络是不是被改成走clash了 不开代理就没网",
+          "expected": [
+            "hermes-usage",
+            "hermes-windows-proxy"
+          ],
+          "candidates": [
+            "harness-engineering",
+            "headless-gpu-bringup",
+            "hermes-memory-db-ops",
+            "hermes-openclaw-collaboration",
+            "hermes-usage",
+            "hermes-windows-proxy",
+            "memory-system-ops",
+            "pm-collab-log",
+            "self-healing-infrastructure",
+            "sg2002-licheerv-nano"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "hermes-windows-proxy\nhermes-usage\npm-collab-log",
+          "predicted": [
+            "hermes-windows-proxy",
+            "hermes-usage",
+            "pm-collab-log"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 650,
+            "completion_tokens": 197,
+            "total_tokens": 847,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 180
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 650
+          },
+          "prompt_tokens": 650,
+          "completion_tokens": 197,
+          "total_tokens": 847,
+          "latency_s": 1.5
+        },
+        {
+          "id": 4,
+          "type": "real",
+          "q": "咱服务器的nv驱动 包在哪 拆一下？",
+          "expected": [
+            "gpu-fault-diagnostics",
+            "headless-gpu-bringup"
+          ],
+          "candidates": [
+            "gpu-passthrough-vm",
+            "headless-gpu-bringup",
+            "local-gguf-serving",
+            "memory-system-ops",
+            "pc-build-planning",
+            "pm-collab-log",
+            "server-hardware-ops",
+            "server-storage-ops",
+            "sunshine-game-streaming",
+            "sxm-gpu-carrier-board-design"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "headless-gpu-bringup",
+          "predicted": [
+            "headless-gpu-bringup"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 595,
+            "completion_tokens": 96,
+            "total_tokens": 691,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 88
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 595
+          },
+          "prompt_tokens": 595,
+          "completion_tokens": 96,
+          "total_tokens": 691,
+          "latency_s": 1.21
+        },
+        {
+          "id": 5,
+          "type": "real",
+          "q": "逐skill比对Qwen3.8产出的迭代版skill清单与原版259个skill的实际内容, 产出覆盖核对/事实错误/迁移映射核对报告",
+          "expected": [
+            "hermes-agent-skill-authoring"
+          ],
+          "candidates": [
+            "cuda-kernel-authoring",
+            "github",
+            "h3-video-generation",
+            "hermes-agent-skill-authoring",
+            "local-image-generation",
+            "memory-db",
+            "memory-system-ops",
+            "pm-collab-log",
+            "retrieval-benchmarking",
+            "subagent-review-discipline"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "subagent-review-discipline\nhermes-agent-skill-authoring",
+          "predicted": [
+            "subagent-review-discipline",
+            "hermes-agent-skill-authoring"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 2,
+          "usage": {
+            "prompt_tokens": 629,
+            "completion_tokens": 219,
+            "total_tokens": 848,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 205
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 629
+          },
+          "prompt_tokens": 629,
+          "completion_tokens": 219,
+          "total_tokens": 848,
+          "latency_s": 1.66
+        },
+        {
+          "id": 6,
+          "type": "real",
+          "q": "如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。那我得到的东西是不是在亵渎她本人呢",
+          "expected": [
+            "directml-lora-training",
+            "local-llm-training"
+          ],
+          "candidates": [
+            "accountability-patterns",
+            "agent-thinking-patterns",
+            "gpt-review",
+            "llama-cpp",
+            "local-gguf-serving",
+            "local-llm-training",
+            "local-video-generation",
+            "memory-system-ops",
+            "model-architecture-verification",
+            "subagent-review-discipline"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "gpt-review\nagent-thinking-patterns",
+          "predicted": [
+            "gpt-review",
+            "agent-thinking-patterns"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 558,
+            "completion_tokens": 249,
+            "total_tokens": 807,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 239
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 558
+          },
+          "prompt_tokens": 558,
+          "completion_tokens": 249,
+          "total_tokens": 807,
+          "latency_s": 1.89
+        },
+        {
+          "id": 7,
+          "type": "real",
+          "q": "现在dsh的memorykit是另外装的还是桥接的 工具呢 我想你们的skill都能相互认",
+          "expected": [
+            "dsh-harness",
+            "dsh-plugins-profiles"
+          ],
+          "candidates": [
+            "agent-tool-integration",
+            "cognitive-bridge",
+            "dsh-feishu-bot",
+            "dsh-harness",
+            "dsh-plugins-profiles",
+            "hermes-memory-db-ops",
+            "llm-model-routing",
+            "memory-db",
+            "memory-system-ops",
+            "pm-collab-log"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "dsh-plugins-profiles\ndsh-harness\nmemory-db",
+          "predicted": [
+            "dsh-plugins-profiles",
+            "dsh-harness",
+            "memory-db"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 647,
+            "completion_tokens": 260,
+            "total_tokens": 907,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 242
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 647
+          },
+          "prompt_tokens": 647,
+          "completion_tokens": 260,
+          "total_tokens": 907,
+          "latency_s": 1.69
+        },
+        {
+          "id": 8,
+          "type": "real",
+          "q": "那deepseekv4和gpt等不同模型的强弱 db如果记了不同时期片段 那召回时优先在前的是新事实还是旧事实 面对这类记忆有去重吗",
+          "expected": [
+            "memory-db",
+            "memory-system-ops"
+          ],
+          "candidates": [
+            "agent-thinking-patterns",
+            "execution-feedback-rl-training",
+            "headless-gpu-bringup",
+            "hermes-memory-db-ops",
+            "local-gguf-serving",
+            "memory-db",
+            "memory-system-ops",
+            "model-architecture-verification",
+            "retrieval-benchmarking",
+            "second-model-review"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "memory-system-ops\nmemory-db",
+          "predicted": [
+            "memory-system-ops",
+            "memory-db"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 610,
+            "completion_tokens": 146,
+            "total_tokens": 756,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 137
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 610
+          },
+          "prompt_tokens": 610,
+          "completion_tokens": 146,
+          "total_tokens": 756,
+          "latency_s": 1.32
+        },
+        {
+          "id": 9,
+          "type": "real",
+          "q": "上次报错的第几条nvlink 看看能不能单独掩码掉它",
+          "expected": [
+            "gpu-fault-diagnostics"
+          ],
+          "candidates": [
+            "gpu-fault-diagnostics",
+            "gpu-passthrough-vm",
+            "h3-video-generation",
+            "headless-gpu-bringup",
+            "llm-model-routing",
+            "local-gguf-serving",
+            "memory-system-ops",
+            "pc-build-planning",
+            "pm-collab-log",
+            "v100-llm-inference"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "gpu-fault-diagnostics\npm-collab-log",
+          "predicted": [
+            "gpu-fault-diagnostics",
+            "pm-collab-log"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 594,
+            "completion_tokens": 122,
+            "total_tokens": 716,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 110
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 594
+          },
+          "prompt_tokens": 594,
+          "completion_tokens": 122,
+          "total_tokens": 716,
+          "latency_s": 1.16
+        },
+        {
+          "id": 10,
+          "type": "real",
+          "q": "咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测看跑推理性能损失多少",
+          "expected": [
+            "gpu-perf-benchmarking",
+            "local-gguf-serving"
+          ],
+          "candidates": [
+            "execution-feedback-rl-training",
+            "gpu-perf-benchmarking",
+            "gpu-rental-economics",
+            "h3-video-generation",
+            "local-gguf-serving",
+            "memory-db",
+            "pc-build-planning",
+            "pm-collab-log",
+            "server-hardware-ops",
+            "sxm-gpu-carrier-board-design"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "gpu-perf-benchmarking\nserver-hardware-ops",
+          "predicted": [
+            "gpu-perf-benchmarking",
+            "server-hardware-ops"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 646,
+            "completion_tokens": 247,
+            "total_tokens": 893,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 232
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 646
+          },
+          "prompt_tokens": 646,
+          "completion_tokens": 247,
+          "total_tokens": 893,
+          "latency_s": 1.66
+        },
+        {
+          "id": 11,
+          "type": "real",
+          "q": "妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入",
+          "expected": [
+            "system-disk-space-triage"
+          ],
+          "candidates": [
+            "h3-video-generation",
+            "headless-gpu-bringup",
+            "hermes-memory-db-ops",
+            "local-video-generation",
+            "memory-db",
+            "memory-system-ops",
+            "pm-collab-log",
+            "server-hardware-ops",
+            "server-storage-ops",
+            "windows-system-diagnostics"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "server-storage-ops\nserver-hardware-ops",
+          "predicted": [
+            "server-storage-ops",
+            "server-hardware-ops"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 610,
+            "completion_tokens": 352,
+            "total_tokens": 962,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 340
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 610
+          },
+          "prompt_tokens": 610,
+          "completion_tokens": 352,
+          "total_tokens": 962,
+          "latency_s": 2.24
+        },
+        {
+          "id": 12,
+          "type": "real",
+          "q": "pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会挂掉",
+          "expected": [
+            "pc-build-planning",
+            "server-hardware-ops"
+          ],
+          "candidates": [
+            "cc-analysis-handoff",
+            "gpu-fault-diagnostics",
+            "gpu-passthrough-vm",
+            "gpu-perf-benchmarking",
+            "local-gguf-serving",
+            "network-bandwidth-diagnosis",
+            "pc-build-planning",
+            "server-hardware-ops",
+            "server-storage-ops",
+            "sxm-gpu-carrier-board-design"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "gpu-passthrough-vm\nserver-hardware-ops\nsxm-gpu-carrier-board-design",
+          "predicted": [
+            "gpu-passthrough-vm",
+            "server-hardware-ops",
+            "sxm-gpu-carrier-board-design"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 2,
+          "usage": {
+            "prompt_tokens": 572,
+            "completion_tokens": 314,
+            "total_tokens": 886,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 290
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 572
+          },
+          "prompt_tokens": 572,
+          "completion_tokens": 314,
+          "total_tokens": 886,
+          "latency_s": 2.09
+        },
+        {
+          "id": 13,
+          "type": "real",
+          "q": "看到个视频 推理mi50 32g不如双mi50 16g 这时瓶颈在于算力不在带宽和显存 但如果瓶颈不一样结果就不同了吧",
+          "expected": [
+            "gpu-perf-benchmarking"
+          ],
+          "candidates": [
+            "gpu-fault-diagnostics",
+            "gpu-perf-benchmarking",
+            "h3-video-generation",
+            "legged-robot-control-stack",
+            "local-image-generation",
+            "local-video-generation",
+            "memory-system-ops",
+            "pc-build-planning",
+            "pm-collab-log",
+            "server-hardware-ops"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "gpu-perf-benchmarking",
+          "predicted": [
+            "gpu-perf-benchmarking"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 611,
+            "completion_tokens": 163,
+            "total_tokens": 774,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 154
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 611
+          },
+          "prompt_tokens": 611,
+          "completion_tokens": 163,
+          "total_tokens": 774,
+          "latency_s": 1.66
+        },
+        {
+          "id": 14,
+          "type": "real",
+          "q": "klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v100 加64g内存呢",
+          "expected": [
+            "huggingface-hub",
+            "local-llm-training"
+          ],
+          "candidates": [
+            "h3-video-generation",
+            "headless-gpu-bringup",
+            "llm-model-routing",
+            "local-gguf-serving",
+            "local-image-generation",
+            "memory-system-ops",
+            "pc-build-planning",
+            "pm-collab-log",
+            "server-hardware-ops",
+            "v100-llm-inference"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "local-image-generation\nllm-model-routing\nv100-llm-inference",
+          "predicted": [
+            "local-image-generation",
+            "llm-model-routing",
+            "v100-llm-inference"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 613,
+            "completion_tokens": 410,
+            "total_tokens": 1023,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 392
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 613
+          },
+          "prompt_tokens": 613,
+          "completion_tokens": 410,
+          "total_tokens": 1023,
+          "latency_s": 2.61
+        },
+        {
+          "id": 15,
+          "type": "real",
+          "q": "显存清空 更新llamacpp和dflash2 起qwen3.8",
+          "expected": [
+            "local-gguf-serving"
+          ],
+          "candidates": [
+            "execution-feedback-rl-training",
+            "gpu-fault-diagnostics",
+            "headless-gpu-bringup",
+            "llama-cpp",
+            "llm-model-routing",
+            "local-gguf-serving",
+            "memory-db",
+            "memory-system-ops",
+            "pm-collab-log",
+            "v100-llm-inference"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "local-gguf-serving\nllama-cpp",
+          "predicted": [
+            "local-gguf-serving",
+            "llama-cpp"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 627,
+            "completion_tokens": 122,
+            "total_tokens": 749,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 111
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 627
+          },
+          "prompt_tokens": 627,
+          "completion_tokens": 122,
+          "total_tokens": 749,
+          "latency_s": 1.28
+        },
+        {
+          "id": 16,
+          "type": "real",
+          "q": "开cudagraph 这么慢咋够 另外上下文开的多少",
+          "expected": [
+            "local-gguf-serving"
+          ],
+          "candidates": [
+            "agent-thinking-patterns",
+            "causal-graph-iteration",
+            "cc-analysis-handoff",
+            "github",
+            "h3-video-generation",
+            "local-gguf-serving",
+            "memory-db",
+            "memory-system-ops",
+            "model-architecture-verification",
+            "v100-llm-inference"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "v100-llm-inference\nlocal-gguf-serving",
+          "predicted": [
+            "v100-llm-inference",
+            "local-gguf-serving"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 2,
+          "usage": {
+            "prompt_tokens": 555,
+            "completion_tokens": 174,
+            "total_tokens": 729,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 160
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 555
+          },
+          "prompt_tokens": 555,
+          "completion_tokens": 174,
+          "total_tokens": 729,
+          "latency_s": 1.58
+        },
+        {
+          "id": 17,
+          "type": "real",
+          "q": "别忘记给日志限流避免内核报错卡死系统盘",
+          "expected": [
+            "system-disk-space-triage"
+          ],
+          "candidates": [
+            "gpu-fault-diagnostics",
+            "h3-video-generation",
+            "headless-gpu-bringup",
+            "local-video-generation",
+            "memory-db",
+            "memory-system-ops",
+            "microduck-rl-sim",
+            "pm-collab-log",
+            "server-hardware-ops",
+            "server-storage-ops"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "server-storage-ops\nserver-hardware-ops",
+          "predicted": [
+            "server-storage-ops",
+            "server-hardware-ops"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 613,
+            "completion_tokens": 218,
+            "total_tokens": 831,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 206
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 613
+          },
+          "prompt_tokens": 613,
+          "completion_tokens": 218,
+          "total_tokens": 831,
+          "latency_s": 1.35
+        },
+        {
+          "id": 18,
+          "type": "real",
+          "q": "很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm5.3f快点 为什么",
+          "expected": [
+            "hermes-usage",
+            "memory-db"
+          ],
+          "candidates": [
+            "agent-thinking-patterns",
+            "gpu-perf-benchmarking",
+            "hermes-memory-db-ops",
+            "hermes-runtime-forensics",
+            "local-gguf-serving",
+            "memory-db",
+            "memory-system-ops",
+            "model-architecture-verification",
+            "pm-collab-log",
+            "v100-llm-inference"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "gpu-perf-benchmarking\nlocal-gguf-serving",
+          "predicted": [
+            "gpu-perf-benchmarking",
+            "local-gguf-serving"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 626,
+            "completion_tokens": 201,
+            "total_tokens": 827,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 186
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 626
+          },
+          "prompt_tokens": 626,
+          "completion_tokens": 201,
+          "total_tokens": 827,
+          "latency_s": 1.53
+        },
+        {
+          "id": 20,
+          "type": "real",
+          "q": "看看笔电的微信ilink网关是不是有问题 配置改回默认吧",
+          "expected": [
+            "wechat-gateway"
+          ],
+          "candidates": [
+            "agent-thinking-patterns",
+            "cross-modal-vector-alignment",
+            "gpu-fault-diagnostics",
+            "hermes-memory-db-ops",
+            "hermes-usage",
+            "home-network-line-diagnostics",
+            "memory-db",
+            "memory-system-ops",
+            "pm-collab-log",
+            "windows-system-diagnostics"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "hermes-usage\npm-collab-log",
+          "predicted": [
+            "hermes-usage",
+            "pm-collab-log"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 619,
+            "completion_tokens": 165,
+            "total_tokens": 784,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 155
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 619
+          },
+          "prompt_tokens": 619,
+          "completion_tokens": 165,
+          "total_tokens": 784,
+          "latency_s": 1.23
+        },
+        {
+          "id": 21,
+          "type": "real",
+          "q": "apikey也有了 你直接配就好了 但是要标准走这个key要clash代理",
+          "expected": [
+            "hermes-config-management",
+            "hermes-windows-proxy"
+          ],
+          "candidates": [
+            "agent-reach",
+            "agent-thinking-patterns",
+            "autonomous-coding-agents",
+            "github",
+            "gpu-passthrough-vm",
+            "hermes-agent",
+            "hermes-memory-db-ops",
+            "hermes-openclaw-collaboration",
+            "hermes-windows-proxy",
+            "sunshine-game-streaming"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "hermes-windows-proxy",
+          "predicted": [
+            "hermes-windows-proxy"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 561,
+            "completion_tokens": 94,
+            "total_tokens": 655,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 87
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 561
+          },
+          "prompt_tokens": 561,
+          "completion_tokens": 94,
+          "total_tokens": 655,
+          "latency_s": 1.04
+        },
+        {
+          "id": 22,
+          "type": "constructed",
+          "q": "帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLink 全互联，供电怎么算",
+          "expected": [
+            "server-hardware-ops",
+            "sxm-gpu-carrier-board-design"
+          ],
+          "candidates": [
+            "gpu-fault-diagnostics",
+            "gpu-passthrough-vm",
+            "headless-gpu-bringup",
+            "local-gguf-serving",
+            "memory-system-ops",
+            "pc-build-planning",
+            "pm-collab-log",
+            "server-hardware-ops",
+            "sunshine-game-streaming",
+            "sxm-gpu-carrier-board-design"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "sxm-gpu-carrier-board-design\nheadless-gpu-bringup",
+          "predicted": [
+            "sxm-gpu-carrier-board-design",
+            "headless-gpu-bringup"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 606,
+            "completion_tokens": 17,
+            "total_tokens": 623,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 606
+          },
+          "prompt_tokens": 606,
+          "completion_tokens": 17,
+          "total_tokens": 623,
+          "latency_s": 0.79
+        },
+        {
+          "id": 23,
+          "type": "constructed",
+          "q": "耳机电池不行了 想改个 type-C 口",
+          "expected": [
+            "windows-peripherals"
+          ],
+          "candidates": [
+            "android-phone-ops",
+            "audiocraft-audio-generation",
+            "cc-analysis-handoff",
+            "h3-video-generation",
+            "memory-db",
+            "personal-budget-and-purchases",
+            "retrieval-benchmarking",
+            "self-healing-infrastructure",
+            "sg2002-licheerv-nano",
+            "windows-system-diagnostics"
+          ],
+          "candidate_contains_expected": false,
+          "raw_response": "personal-budget-and-purchases",
+          "predicted": [
+            "personal-budget-and-purchases"
+          ],
+          "parse_status": "ok",
+          "hit_rank": null,
+          "usage": {
+            "prompt_tokens": 693,
+            "completion_tokens": 368,
+            "total_tokens": 1061,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 360
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 693
+          },
+          "prompt_tokens": 693,
+          "completion_tokens": 368,
+          "total_tokens": 1061,
+          "latency_s": 2.57
+        },
+        {
+          "id": 24,
+          "type": "constructed",
+          "q": "系统盘满了 帮我看看谁占的",
+          "expected": [
+            "system-disk-space-triage"
+          ],
+          "candidates": [
+            "h3-video-generation",
+            "headless-gpu-bringup",
+            "hermes-memory-db-ops",
+            "memory-db",
+            "memory-system-ops",
+            "pm-collab-log",
+            "server-storage-ops",
+            "system-disk-space-triage",
+            "windows-disk-management",
+            "windows-system-diagnostics"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "system-disk-space-triage",
+          "predicted": [
+            "system-disk-space-triage"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 614,
+            "completion_tokens": 42,
+            "total_tokens": 656,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 35
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 614
+          },
+          "prompt_tokens": 614,
+          "completion_tokens": 42,
+          "total_tokens": 656,
+          "latency_s": 0.93
+        },
+        {
+          "id": 25,
+          "type": "constructed",
+          "q": "怎么给六足机器人换舵机 要注意什么",
+          "expected": [
+            "legged-robot-control-stack",
+            "robot-hardware-selection"
+          ],
+          "candidates": [
+            "agent-thinking-patterns",
+            "dsh-feishu-bot",
+            "h3-video-generation",
+            "legged-robot-control-stack",
+            "local-llm-training",
+            "microduck-rl-sim",
+            "pc-build-planning",
+            "pm-collab-log",
+            "robot-hardware-bringup",
+            "robot-hardware-selection"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "robot-hardware-selection\nrobot-hardware-bringup\nlegged-robot-control-stack",
+          "predicted": [
+            "robot-hardware-selection",
+            "robot-hardware-bringup",
+            "legged-robot-control-stack"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 551,
+            "completion_tokens": 163,
+            "total_tokens": 714,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 142
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 551
+          },
+          "prompt_tokens": 551,
+          "completion_tokens": 163,
+          "total_tokens": 714,
+          "latency_s": 1.27
+        },
+        {
+          "id": 26,
+          "type": "constructed",
+          "q": "记忆库合并的时候把不同内容误判成重复了 怎么排查",
+          "expected": [
+            "memory-db",
+            "merge-gate-design"
+          ],
+          "candidates": [
+            "agent-thinking-patterns",
+            "hermes-memory-db-ops",
+            "hermes-usage",
+            "memory-db",
+            "memory-system-ops",
+            "merge-gate-design",
+            "pm-collab-log",
+            "retrieval-benchmarking",
+            "sqlite-corruption-recovery",
+            "system-disk-space-triage"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "merge-gate-design\nmemory-system-ops\nmemory-db",
+          "predicted": [
+            "merge-gate-design",
+            "memory-system-ops",
+            "memory-db"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 621,
+            "completion_tokens": 113,
+            "total_tokens": 734,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 99
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 621
+          },
+          "prompt_tokens": 621,
+          "completion_tokens": 113,
+          "total_tokens": 734,
+          "latency_s": 1.2
+        },
+        {
+          "id": 27,
+          "type": "constructed",
+          "q": "飞书发的长消息老是显示不全",
+          "expected": [
+            "feishu-message-size-limits"
+          ],
+          "candidates": [
+            "agent-tool-integration",
+            "cognitive-bridge",
+            "dsh-feishu-bot",
+            "dsh-harness",
+            "dsh-plugins-profiles",
+            "feishu-message-size-limits",
+            "memory-db",
+            "memory-system-ops",
+            "pm-collab-log",
+            "windows-system-diagnostics"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "feishu-message-size-limits\ndsh-feishu-bot",
+          "predicted": [
+            "feishu-message-size-limits",
+            "dsh-feishu-bot"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 633,
+            "completion_tokens": 62,
+            "total_tokens": 695,
+            "prompt_tokens_details": {
+              "cached_tokens": 128
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 45
+            },
+            "prompt_cache_hit_tokens": 128,
+            "prompt_cache_miss_tokens": 505
+          },
+          "prompt_tokens": 633,
+          "completion_tokens": 62,
+          "total_tokens": 695,
+          "latency_s": 0.68
+        },
+        {
+          "id": 28,
+          "type": "constructed",
+          "q": "CI 红了 怎么判断是不是我改出来的",
+          "expected": [
+            "ci-failure-triage"
+          ],
+          "candidates": [
+            "agent-thinking-patterns",
+            "ci-failure-triage",
+            "hermes-memory-db-ops",
+            "local-llm-training",
+            "memory-system-ops",
+            "model-architecture-verification",
+            "pm-collab-log",
+            "retrieval-benchmarking",
+            "small-model-distillation",
+            "subagent-review-discipline"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "ci-failure-triage",
+          "predicted": [
+            "ci-failure-triage"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 547,
+            "completion_tokens": 6,
+            "total_tokens": 553,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 547
+          },
+          "prompt_tokens": 547,
+          "completion_tokens": 6,
+          "total_tokens": 553,
+          "latency_s": 0.68
+        },
+        {
+          "id": 29,
+          "type": "constructed",
+          "q": "训练小模型跑 RL 显存不够怎么办",
+          "expected": [
+            "execution-feedback-rl-training",
+            "local-llm-training"
+          ],
+          "candidates": [
+            "decision-model-distillation-eval",
+            "execution-feedback-rl-training",
+            "h3-video-generation",
+            "headless-gpu-bringup",
+            "local-gguf-serving",
+            "local-llm-training",
+            "local-video-generation",
+            "microduck-rl-sim",
+            "retrieval-benchmarking",
+            "robot-hardware-bringup"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "local-llm-training\nexecution-feedback-rl-training",
+          "predicted": [
+            "local-llm-training",
+            "execution-feedback-rl-training"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 531,
+            "completion_tokens": 79,
+            "total_tokens": 610,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 65
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 531
+          },
+          "prompt_tokens": 531,
+          "completion_tokens": 79,
+          "total_tokens": 610,
+          "latency_s": 0.83
+        },
+        {
+          "id": 30,
+          "type": "constructed",
+          "q": "两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零头 是不是 NVLink 没通",
+          "expected": [
+            "gpu-fault-diagnostics",
+            "local-gguf-serving",
+            "v100-llm-inference"
+          ],
+          "candidates": [
+            "gpu-fault-diagnostics",
+            "gpu-passthrough-vm",
+            "gpu-perf-benchmarking",
+            "h3-video-generation",
+            "headless-gpu-bringup",
+            "local-gguf-serving",
+            "pm-collab-log",
+            "server-hardware-ops",
+            "sxm-gpu-carrier-board-design",
+            "v100-llm-inference"
+          ],
+          "candidate_contains_expected": true,
+          "raw_response": "v100-llm-inference\ngpu-perf-benchmarking",
+          "predicted": [
+            "v100-llm-inference",
+            "gpu-perf-benchmarking"
+          ],
+          "parse_status": "ok",
+          "hit_rank": 1,
+          "usage": {
+            "prompt_tokens": 611,
+            "completion_tokens": 469,
+            "total_tokens": 1080,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 452
+            },
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 611
+          },
+          "prompt_tokens": 611,
+          "completion_tokens": 469,
+          "total_tokens": 1080,
+          "latency_s": 2.82
+        }
+      ]
+    }
+  }
+}

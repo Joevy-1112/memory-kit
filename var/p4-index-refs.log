@@ -1,0 +1,30 @@
+[index] 504/12179 chunks  4.8 chunks/s  elapsed=106.0s
+[index] 1008/12179 chunks  3.8 chunks/s  elapsed=266.3s
+[index] 1512/12179 chunks  4.3 chunks/s  elapsed=351.4s
+[index] 2016/12179 chunks  4.4 chunks/s  elapsed=457.2s
+[index] 2520/12179 chunks  4.4 chunks/s  elapsed=579.3s
+[index] 3024/12179 chunks  4.2 chunks/s  elapsed=714.4s
+[index] 3528/12179 chunks  4.2 chunks/s  elapsed=836.0s
+[index] 4032/12179 chunks  4.3 chunks/s  elapsed=939.9s
+[index] 4536/12179 chunks  4.2 chunks/s  elapsed=1078.8s
+[index] 5040/12179 chunks  4.2 chunks/s  elapsed=1193.0s
+[index] 5544/12179 chunks  4.3 chunks/s  elapsed=1298.6s
+[index] 6048/12179 chunks  4.3 chunks/s  elapsed=1410.5s
+[index] 6552/12179 chunks  4.4 chunks/s  elapsed=1502.0s
+[index] 7056/12179 chunks  4.3 chunks/s  elapsed=1632.5s
+[index] 7560/12179 chunks  4.3 chunks/s  elapsed=1759.9s
+[index] 8064/12179 chunks  4.2 chunks/s  elapsed=1900.4s
+[index] 8568/12179 chunks  4.2 chunks/s  elapsed=2034.8s
+[index] 9072/12179 chunks  4.2 chunks/s  elapsed=2141.0s
+[index] 9576/12179 chunks  4.3 chunks/s  elapsed=2221.2s
+[index] 10080/12179 chunks  4.4 chunks/s  elapsed=2304.6s
+[index] 10584/12179 chunks  4.4 chunks/s  elapsed=2398.5s
+[index] 11088/12179 chunks  4.5 chunks/s  elapsed=2480.6s
+[index] 11592/12179 chunks  4.5 chunks/s  elapsed=2584.4s
+[index] 12096/12179 chunks  4.5 chunks/s  elapsed=2680.8s
+[index] 12179/12179 chunks  4.5 chunks/s  elapsed=2695.0s
+Building prefix dict from the default dictionary ...
+Loading model from cache /tmp/jieba.cache
+Loading model cost 0.755 seconds.
+Prefix dict has been built successfully.
+{"files_total": 1470, "files_skill": 248, "files_reference": 1222, "files_indexed": 1224, "files_skipped": 246, "files_removed": 0, "chunks_indexed": 12179, "chunks_new_by_kind": {"reference": {"files": 1222, "chunks": 12133}, "skill": {"files": 2, "chunks": 46}}, "chunks_total": 18361, "entity_links": 498889, "include_references": true, "embedding_model": "bge-m3-Q4_K_M.gguf", "index_version": "p2-corpus-v1", "elapsed_s": 2746.23}

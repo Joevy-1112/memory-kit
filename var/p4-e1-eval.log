@@ -1,0 +1,274 @@
+# items=29 dropped_unreachable=[19] weights=[(0.0, 0.0), (0.0, 0.25), (0.05, 0.1), (0.1, 0.25)]
+# embedding 29 queries once
+# scope=skill chunks=6228
+
+## scope=skill weights=(0.0,0.0)
+Building prefix dict from the default dictionary ...
+Loading model from cache /tmp/jieba.cache
+Loading model cost 0.719 seconds.
+Prefix dict has been built successfully.
+[eval] 1/29 在服务器上把 Qwen3.8-27B 视觉模型（GGUF+mmproj，... chunk_rank=1 skill_rank=1
+[eval] 2/29 在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM 基准测试脚... chunk_rank=4 skill_rank=4
+[eval] 3/29 去笔电环境看看hermes网关怎么了 还有全局网络是不是被改成走clas... chunk_rank=1 skill_rank=1
+[eval] 4/29 咱服务器的nv驱动 包在哪 拆一下？... chunk_rank=4 skill_rank=4
+[eval] 5/29 逐skill比对Qwen3.8产出的迭代版skill清单与原版259个s... chunk_rank=4 skill_rank=4
+[eval] 6/29 如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。那我得到的东... chunk_rank=181 skill_rank=55
+[eval] 7/29 现在dsh的memorykit是另外装的还是桥接的 工具呢 我想你们的s... chunk_rank=3 skill_rank=3
+[eval] 8/29 那deepseekv4和gpt等不同模型的强弱 db如果记了不同时期片段... chunk_rank=1 skill_rank=1
+[eval] 9/29 上次报错的第几条nvlink 看看能不能单独掩码掉它... chunk_rank=1 skill_rank=1
+[eval] 10/29 咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测看跑推理性能... chunk_rank=3 skill_rank=2
+[eval] 11/29 妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入... chunk_rank=27 skill_rank=12
+[eval] 12/29 pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会挂掉... chunk_rank=1 skill_rank=1
+[eval] 13/29 看到个视频 推理mi50 32g不如双mi50 16g 这时瓶颈在于算力... chunk_rank=5 skill_rank=4
+[eval] 14/29 klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v100 加64g... chunk_rank=6 skill_rank=5
+[eval] 15/29 显存清空 更新llamacpp和dflash2 起qwen3.8... chunk_rank=5 skill_rank=5
+[eval] 16/29 开cudagraph 这么慢咋够 另外上下文开的多少... chunk_rank=4 skill_rank=3
+[eval] 17/29 别忘记给日志限流避免内核报错卡死系统盘... chunk_rank=4 skill_rank=4
+[eval] 18/29 很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm5.3f快点... chunk_rank=74 skill_rank=22
+[eval] 19/29 看看笔电的微信ilink网关是不是有问题 配置改回默认吧... chunk_rank=38 skill_rank=16
+[eval] 20/29 apikey也有了 你直接配就好了 但是要标准走这个key要clash代... chunk_rank=6 skill_rank=6
+[eval] 21/29 帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLink 全互联... chunk_rank=1 skill_rank=1
+[eval] 22/29 耳机电池不行了 想改个 type-C 口... chunk_rank=73 skill_rank=27
+[eval] 23/29 系统盘满了 帮我看看谁占的... chunk_rank=2 skill_rank=2
+[eval] 24/29 怎么给六足机器人换舵机 要注意什么... chunk_rank=2 skill_rank=2
+[eval] 25/29 记忆库合并的时候把不同内容误判成重复了 怎么排查... chunk_rank=2 skill_rank=2
+[eval] 26/29 飞书发的长消息老是显示不全... chunk_rank=1 skill_rank=1
+[eval] 27/29 CI 红了 怎么判断是不是我改出来的... chunk_rank=1 skill_rank=1
+[eval] 28/29 训练小模型跑 RL 显存不够怎么办... chunk_rank=1 skill_rank=1
+[eval] 29/29 两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零头 是不是 ... chunk_rank=7 skill_rank=3
+| skill chunk | 31.0 | 48.3 | 72.4 | 82.8 | 0.4617 | 29 / 0 / 0 |
+| skill skill | 31.0 | 55.2 | 79.3 | 82.8 | 0.4849 | 29 / 0 / 0 |
+
+## scope=skill weights=(0.0,0.25)
+[eval] 1/29 在服务器上把 Qwen3.8-27B 视觉模型（GGUF+mmproj，... chunk_rank=1 skill_rank=1
+[eval] 2/29 在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM 基准测试脚... chunk_rank=13 skill_rank=9
+[eval] 3/29 去笔电环境看看hermes网关怎么了 还有全局网络是不是被改成走clas... chunk_rank=1 skill_rank=1
+[eval] 4/29 咱服务器的nv驱动 包在哪 拆一下？... chunk_rank=3 skill_rank=3
+[eval] 5/29 逐skill比对Qwen3.8产出的迭代版skill清单与原版259个s... chunk_rank=1 skill_rank=1
+[eval] 6/29 如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。那我得到的东... chunk_rank=287 skill_rank=70
+[eval] 7/29 现在dsh的memorykit是另外装的还是桥接的 工具呢 我想你们的s... chunk_rank=3 skill_rank=3
+[eval] 8/29 那deepseekv4和gpt等不同模型的强弱 db如果记了不同时期片段... chunk_rank=2 skill_rank=2
+[eval] 9/29 上次报错的第几条nvlink 看看能不能单独掩码掉它... chunk_rank=1 skill_rank=1
+[eval] 10/29 咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测看跑推理性能... chunk_rank=3 skill_rank=2
+[eval] 11/29 妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入... chunk_rank=37 skill_rank=19
+[eval] 12/29 pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会挂掉... chunk_rank=1 skill_rank=1
+[eval] 13/29 看到个视频 推理mi50 32g不如双mi50 16g 这时瓶颈在于算力... chunk_rank=11 skill_rank=8
+[eval] 14/29 klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v100 加64g... chunk_rank=9 skill_rank=7
+[eval] 15/29 显存清空 更新llamacpp和dflash2 起qwen3.8... chunk_rank=2 skill_rank=2
+[eval] 16/29 开cudagraph 这么慢咋够 另外上下文开的多少... chunk_rank=8 skill_rank=4
+[eval] 17/29 别忘记给日志限流避免内核报错卡死系统盘... chunk_rank=10 skill_rank=8
+[eval] 18/29 很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm5.3f快点... chunk_rank=14 skill_rank=7
+[eval] 19/29 看看笔电的微信ilink网关是不是有问题 配置改回默认吧... chunk_rank=27 skill_rank=9
+[eval] 20/29 apikey也有了 你直接配就好了 但是要标准走这个key要clash代... chunk_rank=2 skill_rank=2
+[eval] 21/29 帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLink 全互联... chunk_rank=1 skill_rank=1
+[eval] 22/29 耳机电池不行了 想改个 type-C 口... chunk_rank=123 skill_rank=47
+[eval] 23/29 系统盘满了 帮我看看谁占的... chunk_rank=1 skill_rank=1
+[eval] 24/29 怎么给六足机器人换舵机 要注意什么... chunk_rank=1 skill_rank=1
+[eval] 25/29 记忆库合并的时候把不同内容误判成重复了 怎么排查... chunk_rank=1 skill_rank=1
+[eval] 26/29 飞书发的长消息老是显示不全... chunk_rank=1 skill_rank=1
+[eval] 27/29 CI 红了 怎么判断是不是我改出来的... chunk_rank=1 skill_rank=1
+[eval] 28/29 训练小模型跑 RL 显存不够怎么办... chunk_rank=1 skill_rank=1
+[eval] 29/29 两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零头 是不是 ... chunk_rank=7 skill_rank=3
+| skill chunk | 41.4 | 62.1 | 62.1 | 75.9 | 0.5274 | 29 / 0 / 0 |
+| skill skill | 41.4 | 65.5 | 69.0 | 89.7 | 0.5550 | 29 / 0 / 0 |
+
+## scope=skill weights=(0.05,0.1)
+[eval] 1/29 在服务器上把 Qwen3.8-27B 视觉模型（GGUF+mmproj，... chunk_rank=1 skill_rank=1
+[eval] 2/29 在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM 基准测试脚... chunk_rank=27 skill_rank=13
+[eval] 3/29 去笔电环境看看hermes网关怎么了 还有全局网络是不是被改成走clas... chunk_rank=1 skill_rank=1
+[eval] 4/29 咱服务器的nv驱动 包在哪 拆一下？... chunk_rank=4 skill_rank=4
+[eval] 5/29 逐skill比对Qwen3.8产出的迭代版skill清单与原版259个s... chunk_rank=8 skill_rank=7
+[eval] 6/29 如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。那我得到的东... chunk_rank=90 skill_rank=32
+[eval] 7/29 现在dsh的memorykit是另外装的还是桥接的 工具呢 我想你们的s... chunk_rank=2 skill_rank=2
+[eval] 8/29 那deepseekv4和gpt等不同模型的强弱 db如果记了不同时期片段... chunk_rank=2 skill_rank=2
+[eval] 9/29 上次报错的第几条nvlink 看看能不能单独掩码掉它... chunk_rank=1 skill_rank=1
+[eval] 10/29 咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测看跑推理性能... chunk_rank=3 skill_rank=2
+[eval] 11/29 妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入... chunk_rank=37 skill_rank=19
+[eval] 12/29 pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会挂掉... chunk_rank=1 skill_rank=1
+[eval] 13/29 看到个视频 推理mi50 32g不如双mi50 16g 这时瓶颈在于算力... chunk_rank=15 skill_rank=8
+[eval] 14/29 klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v100 加64g... chunk_rank=12 skill_rank=7
+[eval] 15/29 显存清空 更新llamacpp和dflash2 起qwen3.8... chunk_rank=2 skill_rank=2
+[eval] 16/29 开cudagraph 这么慢咋够 另外上下文开的多少... chunk_rank=7 skill_rank=5
+[eval] 17/29 别忘记给日志限流避免内核报错卡死系统盘... chunk_rank=17 skill_rank=14
+[eval] 18/29 很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm5.3f快点... chunk_rank=29 skill_rank=11
+[eval] 19/29 看看笔电的微信ilink网关是不是有问题 配置改回默认吧... chunk_rank=10 skill_rank=5
+[eval] 20/29 apikey也有了 你直接配就好了 但是要标准走这个key要clash代... chunk_rank=1 skill_rank=1
+[eval] 21/29 帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLink 全互联... chunk_rank=1 skill_rank=1
+[eval] 22/29 耳机电池不行了 想改个 type-C 口... chunk_rank=94 skill_rank=33
+[eval] 23/29 系统盘满了 帮我看看谁占的... chunk_rank=1 skill_rank=1
+[eval] 24/29 怎么给六足机器人换舵机 要注意什么... chunk_rank=1 skill_rank=1
+[eval] 25/29 记忆库合并的时候把不同内容误判成重复了 怎么排查... chunk_rank=3 skill_rank=3
+[eval] 26/29 飞书发的长消息老是显示不全... chunk_rank=1 skill_rank=1
+[eval] 27/29 CI 红了 怎么判断是不是我改出来的... chunk_rank=1 skill_rank=1
+[eval] 28/29 训练小模型跑 RL 显存不够怎么办... chunk_rank=1 skill_rank=1
+[eval] 29/29 两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零头 是不是 ... chunk_rank=13 skill_rank=5
+| skill chunk | 37.9 | 55.2 | 58.6 | 69.0 | 0.4893 | 29 / 0 / 0 |
+| skill skill | 37.9 | 55.2 | 69.0 | 79.3 | 0.5154 | 29 / 0 / 0 |
+
+## scope=skill weights=(0.1,0.25)
+[eval] 1/29 在服务器上把 Qwen3.8-27B 视觉模型（GGUF+mmproj，... chunk_rank=1 skill_rank=1
+[eval] 2/29 在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM 基准测试脚... chunk_rank=48 skill_rank=17
+[eval] 3/29 去笔电环境看看hermes网关怎么了 还有全局网络是不是被改成走clas... chunk_rank=1 skill_rank=1
+[eval] 4/29 咱服务器的nv驱动 包在哪 拆一下？... chunk_rank=3 skill_rank=3
+[eval] 5/29 逐skill比对Qwen3.8产出的迭代版skill清单与原版259个s... chunk_rank=23 skill_rank=16
+[eval] 6/29 如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。那我得到的东... chunk_rank=31 skill_rank=14
+[eval] 7/29 现在dsh的memorykit是另外装的还是桥接的 工具呢 我想你们的s... chunk_rank=3 skill_rank=3
+[eval] 8/29 那deepseekv4和gpt等不同模型的强弱 db如果记了不同时期片段... chunk_rank=2 skill_rank=2
+[eval] 9/29 上次报错的第几条nvlink 看看能不能单独掩码掉它... chunk_rank=1 skill_rank=1
+[eval] 10/29 咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测看跑推理性能... chunk_rank=4 skill_rank=3
+[eval] 11/29 妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入... chunk_rank=38 skill_rank=18
+[eval] 12/29 pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会挂掉... chunk_rank=1 skill_rank=1
+[eval] 13/29 看到个视频 推理mi50 32g不如双mi50 16g 这时瓶颈在于算力... chunk_rank=26 skill_rank=14
+[eval] 14/29 klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v100 加64g... chunk_rank=34 skill_rank=9
+[eval] 15/29 显存清空 更新llamacpp和dflash2 起qwen3.8... chunk_rank=3 skill_rank=3
+[eval] 16/29 开cudagraph 这么慢咋够 另外上下文开的多少... chunk_rank=8 skill_rank=4
+[eval] 17/29 别忘记给日志限流避免内核报错卡死系统盘... chunk_rank=38 skill_rank=20
+[eval] 18/29 很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm5.3f快点... chunk_rank=14 skill_rank=7
+[eval] 19/29 看看笔电的微信ilink网关是不是有问题 配置改回默认吧... chunk_rank=7 skill_rank=6
+[eval] 20/29 apikey也有了 你直接配就好了 但是要标准走这个key要clash代... chunk_rank=1 skill_rank=1
+[eval] 21/29 帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLink 全互联... chunk_rank=1 skill_rank=1
+[eval] 22/29 耳机电池不行了 想改个 type-C 口... chunk_rank=125 skill_rank=48
+[eval] 23/29 系统盘满了 帮我看看谁占的... chunk_rank=1 skill_rank=1
+[eval] 24/29 怎么给六足机器人换舵机 要注意什么... chunk_rank=1 skill_rank=1
+[eval] 25/29 记忆库合并的时候把不同内容误判成重复了 怎么排查... chunk_rank=3 skill_rank=3
+[eval] 26/29 飞书发的长消息老是显示不全... chunk_rank=1 skill_rank=1
+[eval] 27/29 CI 红了 怎么判断是不是我改出来的... chunk_rank=1 skill_rank=1
+[eval] 28/29 训练小模型跑 RL 显存不够怎么办... chunk_rank=1 skill_rank=1
+[eval] 29/29 两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零头 是不是 ... chunk_rank=9 skill_rank=5
+| skill chunk | 37.9 | 55.2 | 58.6 | 69.0 | 0.4744 | 29 / 0 / 0 |
+| skill skill | 37.9 | 58.6 | 65.5 | 75.9 | 0.4975 | 29 / 0 / 0 |
+# scope=all chunks=18361
+
+## scope=all weights=(0.0,0.0)
+[eval] 1/29 在服务器上把 Qwen3.8-27B 视觉模型（GGUF+mmproj，... chunk_rank=1 skill_rank=1
+[eval] 2/29 在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM 基准测试脚... chunk_rank=1 skill_rank=1
+[eval] 3/29 去笔电环境看看hermes网关怎么了 还有全局网络是不是被改成走clas... chunk_rank=1 skill_rank=1
+[eval] 4/29 咱服务器的nv驱动 包在哪 拆一下？... chunk_rank=11 skill_rank=6
+[eval] 5/29 逐skill比对Qwen3.8产出的迭代版skill清单与原版259个s... chunk_rank=23 skill_rank=14
+[eval] 6/29 如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。那我得到的东... chunk_rank=3 skill_rank=2
+[eval] 7/29 现在dsh的memorykit是另外装的还是桥接的 工具呢 我想你们的s... chunk_rank=6 skill_rank=4
+[eval] 8/29 那deepseekv4和gpt等不同模型的强弱 db如果记了不同时期片段... chunk_rank=1 skill_rank=1
+[eval] 9/29 上次报错的第几条nvlink 看看能不能单独掩码掉它... chunk_rank=1 skill_rank=1
+[eval] 10/29 咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测看跑推理性能... chunk_rank=4 skill_rank=3
+[eval] 11/29 妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入... chunk_rank=88 skill_rank=22
+[eval] 12/29 pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会挂掉... chunk_rank=2 skill_rank=2
+[eval] 13/29 看到个视频 推理mi50 32g不如双mi50 16g 这时瓶颈在于算力... chunk_rank=4 skill_rank=4
+[eval] 14/29 klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v100 加64g... chunk_rank=28 skill_rank=11
+[eval] 15/29 显存清空 更新llamacpp和dflash2 起qwen3.8... chunk_rank=1 skill_rank=1
+[eval] 16/29 开cudagraph 这么慢咋够 另外上下文开的多少... chunk_rank=13 skill_rank=6
+[eval] 17/29 别忘记给日志限流避免内核报错卡死系统盘... chunk_rank=12 skill_rank=10
+[eval] 18/29 很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm5.3f快点... chunk_rank=2 skill_rank=2
+[eval] 19/29 看看笔电的微信ilink网关是不是有问题 配置改回默认吧... chunk_rank=15 skill_rank=8
+[eval] 20/29 apikey也有了 你直接配就好了 但是要标准走这个key要clash代... chunk_rank=18 skill_rank=12
+[eval] 21/29 帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLink 全互联... chunk_rank=1 skill_rank=1
+[eval] 22/29 耳机电池不行了 想改个 type-C 口... chunk_rank=91 skill_rank=32
+[eval] 23/29 系统盘满了 帮我看看谁占的... chunk_rank=2 skill_rank=2
+[eval] 24/29 怎么给六足机器人换舵机 要注意什么... chunk_rank=2 skill_rank=2
+[eval] 25/29 记忆库合并的时候把不同内容误判成重复了 怎么排查... chunk_rank=2 skill_rank=2
+[eval] 26/29 飞书发的长消息老是显示不全... chunk_rank=1 skill_rank=1
+[eval] 27/29 CI 红了 怎么判断是不是我改出来的... chunk_rank=1 skill_rank=1
+[eval] 28/29 训练小模型跑 RL 显存不够怎么办... chunk_rank=1 skill_rank=1
+[eval] 29/29 两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零头 是不是 ... chunk_rank=1 skill_rank=1
+| all chunk | 37.9 | 58.6 | 65.5 | 69.0 | 0.5164 | 14 / 15 / 0 |
+| all skill | 37.9 | 62.1 | 69.0 | 82.8 | 0.5419 | 14 / 15 / 0 |
+
+## scope=all weights=(0.0,0.25)
+[eval] 1/29 在服务器上把 Qwen3.8-27B 视觉模型（GGUF+mmproj，... chunk_rank=1 skill_rank=1
+[eval] 2/29 在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM 基准测试脚... chunk_rank=2 skill_rank=2
+[eval] 3/29 去笔电环境看看hermes网关怎么了 还有全局网络是不是被改成走clas... chunk_rank=1 skill_rank=1
+[eval] 4/29 咱服务器的nv驱动 包在哪 拆一下？... chunk_rank=4 skill_rank=4
+[eval] 5/29 逐skill比对Qwen3.8产出的迭代版skill清单与原版259个s... chunk_rank=9 skill_rank=5
+[eval] 6/29 如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。那我得到的东... chunk_rank=1 skill_rank=1
+[eval] 7/29 现在dsh的memorykit是另外装的还是桥接的 工具呢 我想你们的s... chunk_rank=5 skill_rank=4
+[eval] 8/29 那deepseekv4和gpt等不同模型的强弱 db如果记了不同时期片段... chunk_rank=2 skill_rank=2
+[eval] 9/29 上次报错的第几条nvlink 看看能不能单独掩码掉它... chunk_rank=2 skill_rank=2
+[eval] 10/29 咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测看跑推理性能... chunk_rank=3 skill_rank=3
+[eval] 11/29 妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入... chunk_rank=82 skill_rank=25
+[eval] 12/29 pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会挂掉... chunk_rank=1 skill_rank=1
+[eval] 13/29 看到个视频 推理mi50 32g不如双mi50 16g 这时瓶颈在于算力... chunk_rank=8 skill_rank=4
+[eval] 14/29 klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v100 加64g... chunk_rank=43 skill_rank=13
+[eval] 15/29 显存清空 更新llamacpp和dflash2 起qwen3.8... chunk_rank=1 skill_rank=1
+[eval] 16/29 开cudagraph 这么慢咋够 另外上下文开的多少... chunk_rank=3 skill_rank=3
+[eval] 17/29 别忘记给日志限流避免内核报错卡死系统盘... chunk_rank=14 skill_rank=11
+[eval] 18/29 很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm5.3f快点... chunk_rank=1 skill_rank=1
+[eval] 19/29 看看笔电的微信ilink网关是不是有问题 配置改回默认吧... chunk_rank=34 skill_rank=14
+[eval] 20/29 apikey也有了 你直接配就好了 但是要标准走这个key要clash代... chunk_rank=4 skill_rank=4
+[eval] 21/29 帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLink 全互联... chunk_rank=1 skill_rank=1
+[eval] 22/29 耳机电池不行了 想改个 type-C 口... chunk_rank=162 skill_rank=48
+[eval] 23/29 系统盘满了 帮我看看谁占的... chunk_rank=1 skill_rank=1
+[eval] 24/29 怎么给六足机器人换舵机 要注意什么... chunk_rank=1 skill_rank=1
+[eval] 25/29 记忆库合并的时候把不同内容误判成重复了 怎么排查... chunk_rank=2 skill_rank=2
+[eval] 26/29 飞书发的长消息老是显示不全... chunk_rank=1 skill_rank=1
+[eval] 27/29 CI 红了 怎么判断是不是我改出来的... chunk_rank=1 skill_rank=1
+[eval] 28/29 训练小模型跑 RL 显存不够怎么办... chunk_rank=1 skill_rank=1
+[eval] 29/29 两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零头 是不是 ... chunk_rank=1 skill_rank=1
+| all chunk | 44.8 | 65.5 | 75.9 | 82.8 | 0.5774 | 16 / 13 / 0 |
+| all skill | 44.8 | 65.5 | 82.8 | 82.8 | 0.5920 | 16 / 13 / 0 |
+
+## scope=all weights=(0.05,0.1)
+[eval] 1/29 在服务器上把 Qwen3.8-27B 视觉模型（GGUF+mmproj，... chunk_rank=1 skill_rank=1
+[eval] 2/29 在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM 基准测试脚... chunk_rank=3 skill_rank=3
+[eval] 3/29 去笔电环境看看hermes网关怎么了 还有全局网络是不是被改成走clas... chunk_rank=1 skill_rank=1
+[eval] 4/29 咱服务器的nv驱动 包在哪 拆一下？... chunk_rank=8 skill_rank=7
+[eval] 5/29 逐skill比对Qwen3.8产出的迭代版skill清单与原版259个s... chunk_rank=24 skill_rank=13
+[eval] 6/29 如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。那我得到的东... chunk_rank=2 skill_rank=2
+[eval] 7/29 现在dsh的memorykit是另外装的还是桥接的 工具呢 我想你们的s... chunk_rank=4 skill_rank=4
+[eval] 8/29 那deepseekv4和gpt等不同模型的强弱 db如果记了不同时期片段... chunk_rank=2 skill_rank=2
+[eval] 9/29 上次报错的第几条nvlink 看看能不能单独掩码掉它... chunk_rank=2 skill_rank=2
+[eval] 10/29 咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测看跑推理性能... chunk_rank=3 skill_rank=3
+[eval] 11/29 妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入... chunk_rank=86 skill_rank=26
+[eval] 12/29 pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会挂掉... chunk_rank=1 skill_rank=1
+[eval] 13/29 看到个视频 推理mi50 32g不如双mi50 16g 这时瓶颈在于算力... chunk_rank=5 skill_rank=4
+[eval] 14/29 klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v100 加64g... chunk_rank=80 skill_rank=12
+[eval] 15/29 显存清空 更新llamacpp和dflash2 起qwen3.8... chunk_rank=1 skill_rank=1
+[eval] 16/29 开cudagraph 这么慢咋够 另外上下文开的多少... chunk_rank=16 skill_rank=8
+[eval] 17/29 别忘记给日志限流避免内核报错卡死系统盘... chunk_rank=27 skill_rank=17
+[eval] 18/29 很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm5.3f快点... chunk_rank=1 skill_rank=1
+[eval] 19/29 看看笔电的微信ilink网关是不是有问题 配置改回默认吧... chunk_rank=16 skill_rank=8
+[eval] 20/29 apikey也有了 你直接配就好了 但是要标准走这个key要clash代... chunk_rank=2 skill_rank=2
+[eval] 21/29 帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLink 全互联... chunk_rank=1 skill_rank=1
+[eval] 22/29 耳机电池不行了 想改个 type-C 口... chunk_rank=112 skill_rank=36
+[eval] 23/29 系统盘满了 帮我看看谁占的... chunk_rank=1 skill_rank=1
+[eval] 24/29 怎么给六足机器人换舵机 要注意什么... chunk_rank=1 skill_rank=1
+[eval] 25/29 记忆库合并的时候把不同内容误判成重复了 怎么排查... chunk_rank=5 skill_rank=3
+[eval] 26/29 飞书发的长消息老是显示不全... chunk_rank=1 skill_rank=1
+[eval] 27/29 CI 红了 怎么判断是不是我改出来的... chunk_rank=1 skill_rank=1
+[eval] 28/29 训练小模型跑 RL 显存不够怎么办... chunk_rank=1 skill_rank=1
+[eval] 29/29 两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零头 是不是 ... chunk_rank=1 skill_rank=1
+| all chunk | 41.4 | 62.1 | 72.4 | 75.9 | 0.5406 | 17 / 12 / 0 |
+| all skill | 41.4 | 65.5 | 72.4 | 82.8 | 0.5579 | 17 / 12 / 0 |
+
+## scope=all weights=(0.1,0.25)
+[eval] 1/29 在服务器上把 Qwen3.8-27B 视觉模型（GGUF+mmproj，... chunk_rank=1 skill_rank=1
+[eval] 2/29 在服务器上跑通 Qwen3.6-27B-AWQ 的 vLLM 基准测试脚... chunk_rank=3 skill_rank=3
+[eval] 3/29 去笔电环境看看hermes网关怎么了 还有全局网络是不是被改成走clas... chunk_rank=1 skill_rank=1
+[eval] 4/29 咱服务器的nv驱动 包在哪 拆一下？... chunk_rank=5 skill_rank=5
+[eval] 5/29 逐skill比对Qwen3.8产出的迭代版skill清单与原版259个s... chunk_rank=53 skill_rank=21
+[eval] 6/29 如果我把和前女友的聊天记录 经历 信件 都对给模型做微调。。那我得到的东... chunk_rank=2 skill_rank=2
+[eval] 7/29 现在dsh的memorykit是另外装的还是桥接的 工具呢 我想你们的s... chunk_rank=6 skill_rank=5
+[eval] 8/29 那deepseekv4和gpt等不同模型的强弱 db如果记了不同时期片段... chunk_rank=1 skill_rank=1
+[eval] 9/29 上次报错的第几条nvlink 看看能不能单独掩码掉它... chunk_rank=2 skill_rank=2
+[eval] 10/29 咱要不要限制下功耗 比如每张卡限制在150/200w？ 测测看跑推理性能... chunk_rank=4 skill_rank=3
+[eval] 11/29 妈的系统盘刚刚爆了 pcie报错 你限制一下它的日志写入... chunk_rank=83 skill_rank=29
+[eval] 12/29 pcie拆分后网卡会因为pcie异常排布挂掉 之前拆分后网会挂掉... chunk_rank=1 skill_rank=1
+[eval] 13/29 看到个视频 推理mi50 32g不如双mi50 16g 这时瓶颈在于算力... chunk_rank=6 skill_rank=4
+[eval] 14/29 klein是最新的吧 帮我找找参数更大且咱能用的 咱俩v100 加64g... chunk_rank=126 skill_rank=15
+[eval] 15/29 显存清空 更新llamacpp和dflash2 起qwen3.8... chunk_rank=1 skill_rank=1
+[eval] 16/29 开cudagraph 这么慢咋够 另外上下文开的多少... chunk_rank=3 skill_rank=3
+[eval] 17/29 别忘记给日志限流避免内核报错卡死系统盘... chunk_rank=76 skill_rank=27
+[eval] 18/29 很奇怪的一件事 ds4.1当后端上下文压缩老是慢 但是glm5.3f快点... chunk_rank=1 skill_rank=1
+[eval] 19/29 看看笔电的微信ilink网关是不是有问题 配置改回默认吧... chunk_rank=10 skill_rank=7
+[eval] 20/29 apikey也有了 你直接配就好了 但是要标准走这个key要clash代... chunk_rank=2 skill_rank=2
+[eval] 21/29 帮我在服务器上装个 4 卡的 SXM2 载板，需要 NVLink 全互联... chunk_rank=1 skill_rank=1
+[eval] 22/29 耳机电池不行了 想改个 type-C 口... chunk_rank=168 skill_rank=50
+[eval] 23/29 系统盘满了 帮我看看谁占的... chunk_rank=1 skill_rank=1
+[eval] 24/29 怎么给六足机器人换舵机 要注意什么... chunk_rank=1 skill_rank=1
+[eval] 25/29 记忆库合并的时候把不同内容误判成重复了 怎么排查... chunk_rank=5 skill_rank=4
+[eval] 26/29 飞书发的长消息老是显示不全... chunk_rank=1 skill_rank=1
+[eval] 27/29 CI 红了 怎么判断是不是我改出来的... chunk_rank=1 skill_rank=1
+[eval] 28/29 训练小模型跑 RL 显存不够怎么办... chunk_rank=1 skill_rank=1
+[eval] 29/29 两张 V100 跑 TP2 速度只有单卡 11.5 倍里的零头 是不是 ... chunk_rank=1 skill_rank=1
+| all chunk | 44.8 | 62.1 | 72.4 | 82.8 | 0.5623 | 16 / 13 / 0 |
+| all skill | 44.8 | 65.5 | 79.3 | 82.8 | 0.5775 | 16 / 13 / 0 |
+
+# wrote /home/joe/memory-kit-v2/var/p4-e1-results.json  (23.2s)

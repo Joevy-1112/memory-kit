@@ -1,0 +1,24 @@
+{
+  "db_path": "/home/joe/memory-kit-v2/var/memory-sandbox.db",
+  "root": "/home/joe/.hermes/skills",
+  "files": 1470,
+  "chunks": 18361,
+  "reference_chunks": 12133,
+  "reference_files": 1222,
+  "skill_files": 248,
+  "frontmatter_chunks": 248,
+  "entities": 26689,
+  "entity_links": 498889,
+  "models": [
+    "bge-m3-Q4_K_M.gguf"
+  ],
+  "index_versions": [
+    "p2-corpus-v1"
+  ],
+  "chunk_types": {
+    "frontmatter": 248,
+    "heading": 5723,
+    "preamble": 257,
+    "reference": 12133
+  }
+}
