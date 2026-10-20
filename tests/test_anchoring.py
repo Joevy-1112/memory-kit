@@ -66,6 +66,48 @@ class DeterministicEmbedder:
         return True
 
 
+def at_angle(cos, dim=64):
+    """与 [1,0,...] 余弦精确为 cos 的单位向量（构灰带夹具）。"""
+    import math
+    cos = max(-1.0, min(1.0, float(cos)))
+    return [cos, math.sqrt(max(0.0, 1.0 - cos * cos))] + [0.0] * (dim - 2)
+
+
+class ScriptedEmbedder:
+    """按文本精确给向量；未登记文本走确定性 hash（与登记文本≈不相似）。"""
+
+    def __init__(self, mapping):
+        self.mapping = {k: list(v) for k, v in mapping.items()}
+
+    def embed(self, text):
+        if text in self.mapping:
+            return list(self.mapping[text])
+        return DeterministicEmbedder()._vec(text)
+
+    def is_available(self):
+        return True
+
+
+class _Flags:
+    """临时设置 P1 两个 flag（退出时恢复）。"""
+
+    def __init__(self, merge="shadow", anchor="shadow"):
+        self.values = {"MERGE_SAFETY_V2": merge, "ANCHOR_GRAY_BAND": anchor}
+
+    def __enter__(self):
+        self.old = {k: os.environ.get(k) for k in self.values}
+        os.environ.update(self.values)
+        return self
+
+    def __exit__(self, *exc):
+        for k, v in self.old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        return False
+
+
 class OfflineEmbedder:
     """离线嵌入器：永远返回 None → 走实体去重兜底合并路径。"""
 
@@ -110,11 +152,24 @@ def _ents(row):
 
 
 class TestAnchorLLMEnabled(unittest.TestCase):
-    """anchor=True + 假 LLM: 写入前做 top-k 检索 + 关系标注。"""
+    """anchor=True + 假 LLM，且候选落在灰带（P1 惰性后唯一会分类的区间）。
+
+    P1（2026-10-20）语义变化:
+      - 锚定只在 0.85<=fusion<0.92 的灰带候选上执行；
+      - 灰带 + 修正/延续 → MERGE（anchor 不否决），provenance 记 anchor；
+      - 灰带 + 显式无关 → shadow 记 would_veto 仍合并 / veto 档保持两条独立；
+      - derived_from 只在 anchor 指向"另一条"记忆时才写（指向 merge 目标本身
+        就是自指，由 merged_into 表达）。
+    """
+
+    OLD = "旧条目：项目代号 Orpheus 的部署窗口在周五"
+    NEW = "新条目：食堂的黄焖鸡加了双份辣"
 
     def setUp(self):
         self.tmp = make_tmp_db()
-        self.db = MemoryDB(db_path=self.tmp, embedder=DeterministicEmbedder())
+        self.db = MemoryDB(db_path=self.tmp, embedder=ScriptedEmbedder({
+            self.OLD: at_angle(1.0), self.NEW: at_angle(0.90)}))
+        self.old_key = self.db.learn(self.OLD, source="task", auto_verify=False)["key"]
 
     def tearDown(self):
         try:
@@ -126,61 +181,68 @@ class TestAnchorLLMEnabled(unittest.TestCase):
         except Exception:
             pass
 
-    def _seed_related(self):
-        # 种子一条相关旧记忆(与后续新记忆共享"显卡"实体但文本不同 → 不触发向量合并)
-        r = self.db.learn("显卡当前价格是550块，显存12G", source="task", source_session="s1")
-        return r["key"]
-
-    def test_llm_correction_sets_derived_from(self):
-        old_key = self._seed_related()
-        r = self.db.learn("显卡价格上涨到650块，显存不变", source="task",
-                          source_session="s2", anchor=True,
-                          anchor_llm=FakeLLM("修正"), anchor_top_k=3)
-        self.assertFalse(r["merged"])
-        row = self.db.get(r["key"])
+    def test_llm_correction_gray_band_records_anchor(self):
+        with _Flags("shadow", "shadow"):
+            r = self.db.learn(self.NEW, source="task", anchor=True,
+                              anchor_llm=FakeLLM("修正"), anchor_top_k=3,
+                              auto_verify=False)
+        self.assertTrue(r["merged"], "灰带 + 修正 → 合并")
+        row = self.db.get(self.old_key)
         prov = _prov(row)
         self.assertEqual(prov.get("v"), "pending")
         anchor = prov.get("anchor")
-        self.assertIsNotNone(anchor, "anchor=True 时应写入 provenance.anchor")
+        self.assertIsNotNone(anchor, "灰带分类后应写入 provenance.anchor")
         self.assertEqual(anchor["relation"], "修正")
         self.assertEqual(anchor["source"], "llm")
         self.assertEqual(anchor["model"], "fake-model")
-        # relation ∈ {延续,修正} → derived_from 指向被锚定的旧记忆
-        self.assertEqual(row["derived_from"], old_key,
-                         "修正锚定 → derived_from 应指向被修正的旧记忆")
+        self.assertIsNone(row["derived_from"],
+                          "anchor 指向的正是 merge 目标 → derived_from 保持 NULL（不自指）")
 
-    def test_llm_continuation_sets_derived_from(self):
-        old_key = self._seed_related()
-        # 与 seed 不同文本(md5 cos≈0.79, 实体重叠=1 不 boost) → 不触发向量合并, 走新建路径
-        r = self.db.learn("显卡驱动报错 Xid 43，需要降频", source="task",
-                          source_session="s2", anchor=True,
-                          anchor_llm=FakeLLM("延续"), anchor_top_k=3)
-        self.assertFalse(r["merged"])
-        row = self.db.get(r["key"])
-        prov = _prov(row)
-        self.assertEqual(prov.get("anchor", {}).get("relation"), "延续")
-        self.assertEqual(row["derived_from"], old_key,
-                         "延续锚定 → derived_from 指向被延续的旧记忆")
+    def test_llm_continuation_gray_band_records_anchor(self):
+        with _Flags("shadow", "shadow"):
+            r = self.db.learn(self.NEW, source="task", anchor=True,
+                              anchor_llm=FakeLLM("延续"), anchor_top_k=3,
+                              auto_verify=False)
+        self.assertTrue(r["merged"])
+        self.assertEqual(_prov(self.db.get(self.old_key))["anchor"]["relation"], "延续")
 
-    def test_llm_unrelated_keeps_derived_from_null(self):
-        self._seed_related()
-        r = self.db.learn("今天中午吃了黄焖鸡米饭", source="task",
-                          source_session="s2", anchor=True,
-                          anchor_llm=FakeLLM("无关"), anchor_top_k=3)
-        self.assertFalse(r["merged"])
+    def test_llm_unrelated_shadow_merges_but_records_would_veto(self):
+        with _Flags("shadow", "shadow"):
+            r = self.db.learn(self.NEW, source="task", anchor=True,
+                              anchor_llm=FakeLLM("无关"), anchor_top_k=3,
+                              auto_verify=False)
+        self.assertTrue(r["merged"], "shadow 阶段只记 would_veto，不改变合并")
+        ev = self.db._conn.execute(
+            "SELECT decision, reason, would_veto FROM merge_events").fetchone()
+        self.assertEqual((ev["decision"], ev["reason"], ev["would_veto"]),
+                         ("MERGE", "vector_only", 1))
+        self.assertEqual(_prov(self.db.get(self.old_key))["anchor"]["relation"], "无关")
+
+    def test_llm_unrelated_veto_keeps_new_entry(self):
+        with _Flags("on", "veto"):
+            r = self.db.learn(self.NEW, source="task", anchor=True,
+                              anchor_llm=FakeLLM("无关"), anchor_top_k=3,
+                              auto_verify=False)
+        self.assertFalse(r["merged"], "on+veto 下显式无关应否决灰带合并")
         row = self.db.get(r["key"])
-        prov = _prov(row)
-        self.assertEqual(prov.get("anchor", {}).get("relation"), "无关")
-        # 无关 → 不设 derived_from
-        self.assertIsNone(row["derived_from"])
+        self.assertEqual(_prov(row)["anchor"]["relation"], "无关")
+        self.assertIsNone(row["derived_from"], "无关 → 不写 derived_from")
 
 
 class TestAnchorRuleFallback(unittest.TestCase):
-    """anchor=True + 无 LLM: 纯规则 fallback, 安静降级不崩溃。"""
+    """anchor=True + 无 LLM: 纯规则 fallback, 安静降级不崩溃。
+
+    P1 三态化: 规则兜底只信肯定信号（延续/修正）；规则判"无关"是启发式
+    否定，一律降级为 unknown，不参与否决（避免模型/规则失败时静默杀合并）。
+    """
+
+    OLD = "旧条目：项目代号 Orpheus 的部署窗口在周五"
+    NEW = "新条目：食堂的黄焖鸡加了双份辣"
 
     def setUp(self):
         self.tmp = make_tmp_db()
-        self.db = MemoryDB(db_path=self.tmp, embedder=DeterministicEmbedder())
+        self.db = MemoryDB(db_path=self.tmp, embedder=ScriptedEmbedder({
+            self.OLD: at_angle(1.0), self.NEW: at_angle(0.90)}))
 
     def tearDown(self):
         try:
@@ -192,23 +254,29 @@ class TestAnchorRuleFallback(unittest.TestCase):
         except Exception:
             pass
 
-    def test_rule_fallback_degrades_gracefully(self):
-        old_key = self.db.learn("显卡当前价格是550块，显存12G", source="task",
-                                source_session="s1")["key"]
-        # anchor=True, anchor_llm=None → classify_relation 走规则 fallback
-        r = self.db.learn("显卡价格上涨到650块，显存不变", source="task",
-                          source_session="s2", anchor=True,
-                          anchor_llm=None, anchor_top_k=3)
-        self.assertFalse(r["merged"])
-        row = self.db.get(r["key"])
-        prov = _prov(row)
-        anchor = prov.get("anchor")
+    def test_rule_negative_degrades_to_unknown_and_still_merges(self):
+        old_key = self.db.learn(self.OLD, source="task", auto_verify=False)["key"]
+        with _Flags("on", "veto"):
+            r = self.db.learn(self.NEW, source="task", anchor=True,
+                              anchor_llm=None, anchor_top_k=3,
+                              auto_verify=False)
+        self.assertTrue(r["merged"], "unknown 不得否决合并（哪怕 on+veto）")
+        anchor = _prov(self.db.get(old_key)).get("anchor")
         self.assertIsNotNone(anchor, "规则 fallback 也应写入 anchor 标注")
         self.assertEqual(anchor["source"], "rule")
-        self.assertIn(anchor["relation"], ("延续", "修正", "无关"))
-        # "上涨"是修正线索 → 规则判定修正 → derived_from 指向旧记忆
-        if anchor["relation"] == "修正":
-            self.assertEqual(row["derived_from"], old_key)
+        self.assertEqual(anchor["relation"], "unknown")
+        self.assertTrue(anchor["degraded"])
+
+    def test_rule_positive_survives_fallback(self):
+        # 规则看到"上涨"→修正（肯定信号，可用），即使没有 LLM
+        from memorykit.anchoring import classify_relation
+        cands = [{"key": "k1", "id": 1, "content": "显卡价格550块",
+                  "similarity": 0.90, "entity_overlap": 2}]
+        rel = classify_relation("显卡价格上涨到650块", cands, llm=None)
+        self.assertEqual(rel["relation"], "修正")
+        self.assertEqual(rel["source"], "rule")
+        self.assertTrue(rel["degraded"], "规则结果仍标记为降级（非模型显式判定）")
+        self.assertEqual(rel["anchored_key"], "k1")
 
 
 class TestAnchorDefaultOff(unittest.TestCase):
@@ -301,11 +369,12 @@ class TestDerivedFromPointer(unittest.TestCase):
 
 
 class TestClassifyRelationSurface(unittest.TestCase):
-    """classify_relation 纯函数面: 空候选 / llm输出解析 / 词表归一。"""
+    """classify_relation 纯函数面: 三态化（无关 vs unknown）/ 解析 / 归一。"""
 
-    def test_no_candidates_returns_unrelated(self):
+    def test_no_candidates_is_unknown_degraded(self):
         r = classify_relation("随便内容", [], llm=None)
-        self.assertEqual(r["relation"], "无关")
+        self.assertEqual(r["relation"], "unknown", "无候选 ≠ 无关")
+        self.assertTrue(r["degraded"])
         self.assertIsNone(r["anchored_key"])
 
     def test_llm_fenced_json_parsed(self):
@@ -318,13 +387,57 @@ class TestClassifyRelationSurface(unittest.TestCase):
         self.assertEqual(r["relation"], "修正")
         self.assertEqual(r["source"], "llm")
         self.assertEqual(r["anchored_key"], "general/0801_a")
+        self.assertFalse(r["degraded"])
 
-    def test_out_of_vocab_relation_forced_to_unrelated_or_match(self):
+    def test_llm_explicit_unrelated_is_not_degraded(self):
+        cands = [{"key": "general/0801_a", "id": 1, "content": "旧",
+                  "similarity": 0.9}]
+        r = classify_relation("新", cands, llm=FakeLLM("无关"))
+        self.assertEqual(r["relation"], "无关")
+        self.assertFalse(r["degraded"], "显式无关是可信否定，不是降级态")
+        self.assertEqual(r["anchored_key"], "general/0801_a")
+
+    def test_out_of_vocab_relation_is_unknown(self):
         cands = [{"key": "k", "id": 1, "content": "c", "similarity": 0.5}]
-        # 输出未知词 → 归一化兜底(要么匹配受控词表, 要么回退"无关")
-        fake = FakeLLM("zzz")
-        r = classify_relation("xxx", cands, llm=fake)
-        self.assertIn(r["relation"], ("延续", "修正", "无关"))
+        r = classify_relation("xxx", cands, llm=FakeLLM("zzz"))
+        self.assertEqual(r["relation"], "unknown")
+        self.assertTrue(r["degraded"])
+
+    def test_llm_failure_falls_back_to_rule(self):
+        cands = [{"key": "k1", "id": 1, "content": "显卡价格550块",
+                  "similarity": 0.88, "entity_overlap": 2}]
+
+        class Boom:
+            model = "boom"
+
+            def chat(self, prompt):
+                raise RuntimeError("network down")
+
+        r = classify_relation("显卡价格上涨到650块", cands, llm=Boom())
+        self.assertEqual(r["source"], "rule")
+        self.assertEqual(r["relation"], "修正")
+        self.assertTrue(r["degraded"])
+
+    def test_rule_negative_is_degraded_unknown(self):
+        cands = [{"key": "k1", "id": 1, "content": "黄焖鸡",
+                  "similarity": 0.90, "entity_overlap": 0}]
+        r = classify_relation("显卡价格550块", cands, llm=None)
+        self.assertEqual(r["relation"], "unknown")
+        self.assertTrue(r["degraded"])
+        self.assertIsNone(r["anchored_key"], "降级态不得给 anchored_key（防误否决）")
+
+    def test_unrelated_english_synonym_accepted(self):
+        cands = [{"key": "k1", "id": 1, "content": "c", "similarity": 0.9}]
+
+        class Eng:
+            model = "eng"
+
+            def chat(self, prompt):
+                return '{"relation":"unrelated","anchored_key":"k1","reason":"x"}'
+
+        r = classify_relation("新", cands, llm=Eng())
+        self.assertEqual(r["relation"], "无关")
+        self.assertFalse(r["degraded"])
 
 
 if __name__ == "__main__":

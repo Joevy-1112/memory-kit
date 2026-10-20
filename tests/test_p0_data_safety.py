@@ -237,11 +237,25 @@ class TestLearnVectorWriteback(unittest.TestCase):
             self.assertIn("old/key", f.read())
 
     def test_anchor_derived_from_points_to_other_key(self):
+        """P1（2026-10-20）后锚定改为灰带惰性：本用例改成灰带夹具 + shadow 开。
+
+        原夹具用 cos=1.0（>=0.92 高相似区），P1 起该区间不触发分类、anchor
+        不参与决策，因此 derived_from 不会再被 anchor 改写。断言本身
+        （derived_from 指向别的 key、绝不自指）不变，只在灰带路径上验证。
+        """
         self._seed(derived_from=None)
-        self.emb.vectors = [self.A, self.B, self.B]
-        r = self.db.learn("补充说明：显卡显存需要注意散热", source="task",
-                          anchor=True, anchor_llm=FakeLLM("anchor/target"),
-                          anchor_top_k=3, auto_verify=False)
+        # 与旧条目共享 显卡/显存 两实体 → boost 1.10；cos 0.80*1.10 = 0.88 落灰带
+        gray = pair_vecs(0.80)[1]
+        self.emb.vectors = [gray, gray, gray]
+        os.environ["MERGE_SAFETY_V2"] = "shadow"
+        os.environ["ANCHOR_GRAY_BAND"] = "shadow"
+        try:
+            r = self.db.learn("补充说明：显卡显存需要注意散热", source="task",
+                              anchor=True, anchor_llm=FakeLLM("anchor/target"),
+                              anchor_top_k=3, auto_verify=False)
+        finally:
+            os.environ.pop("MERGE_SAFETY_V2", None)
+            os.environ.pop("ANCHOR_GRAY_BAND", None)
         self.assertTrue(r["merged"])
         row = self.db.peek("old/key")
         self.assertEqual(row["derived_from"], "anchor/target")

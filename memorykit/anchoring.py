@@ -7,10 +7,15 @@
 
 本模块提供:
   - AVAILABLE_RELATIONS: 受控关系词表 {"延续","修正","无关"}。
+  - RELATION_UNKNOWN = "unknown": 锚定三态之外的**降级态**（P1, 2026-10-20）。
+    历史上"无关"是四合一标签（真无关 / 无候选 / LLM 失败 / 解析失败），
+    把失败当明确否定会静默否决合法合并。现在只有模型**显式**说"无关"才
+    返回 "无关"；其余一律 "unknown" + degraded=True，调用方不得据此否决。
   - classify_relation(new_content, candidates, llm=None): 分类新记忆与
     top-k 候选旧记忆的关系。llm 可调用时走模型(结构化 JSON); llm=None 或
     调用失败时降级到纯规则(实体重叠 + 相似度阈值) —— 安静降级, 绝不阻塞
     写入路径(every failure path returns a well-formed dict)。
+    规则兜底只信**肯定**信号（延续/修正）；规则的否定一律降级为 unknown。
   - HTTPAnchorLLM: OpenAI 兼容 chat/completions 客户端。默认指向 opendesign
     反代 @8792 / deepseek-v4-flash(本地免费零成本), 可通过 env 覆盖:
       MEMORY_ANCHOR_LLM_URL / MEMORY_ANCHOR_LLM_KEY / MEMORY_ANCHOR_LLM_MODEL
@@ -31,6 +36,9 @@ import urllib.request
 logger = logging.getLogger(__name__)
 
 AVAILABLE_RELATIONS = ("延续", "修正", "无关")
+# 降级态：无候选 / LLM 失败 / 解析失败 / 未知标签 / 规则兜底的否定。
+# 与"无关"严格区分 —— 只有显式"无关"才有资格否决合并（P1 三态化）。
+RELATION_UNKNOWN = "unknown"
 
 # 默认 LLM 端点: deepseek 官方直连(有 reasoning_content 的模型须 max_tokens≥600 才出 content)。
 # 可通过 env 覆盖(见模块 docstring)。
@@ -135,20 +143,27 @@ def _extract_json(text: str) -> dict | None:
 
 
 def _norm_relation(value) -> str:
-    """把模型/规则输出归一化到受控词表。未知值归入 '无关'。"""
+    """把模型/规则输出归一化到受控词表。
+
+    P1（2026-10-20）: 未知值/空值 → "unknown"（降级态），不再归入"无关"。
+    把"看不懂的输出"当明确否定，是历史上"无关"四合一的根因。
+    """
     if not value:
-        return "无关"
+        return RELATION_UNKNOWN
     v = str(value).strip()
     for rel in AVAILABLE_RELATIONS:
         if rel in v:
             return rel
-    # 兼容英文同义词
+    # 兼容英文同义词（显式否定才映射到"无关"）
     low = v.lower()
-    if low in ("continue", "extends", "延续", "extend"):
+    if low in ("continue", "extends", "extend", "continuation"):
         return "延续"
-    if low in ("correct", "revise", "修正", "update", "modify", "conflict"):
+    if low in ("correct", "revise", "correction", "update", "modify", "conflict"):
         return "修正"
-    return "无关"
+    if low in ("unrelated", "irrelevant", "none", "no relation", "no_relation",
+               "un-connected"):
+        return "无关"
+    return RELATION_UNKNOWN
 
 
 # 规则 fallback: 关系判定的关键词对(hit 新内容 → 倾向修正)
@@ -192,19 +207,23 @@ def classify_relation(new_content: str, candidates: list, llm=None) -> dict:
                    None 或调用失败 → 纯规则 fallback。
 
     返回稳定 dict:
-      {relation, anchored_key, anchored_id, reason, source, model,
+      {relation, degraded, anchored_key, anchored_id, reason, source, model,
        top_candidates}
-      relation ∈ AVAILABLE_RELATIONS;
-      anchored_key/anchored_id = 被锚定的旧记忆(仅 relation∈{延续,修正} 或有
-        最相似候选时给, 否则 None);
-      source = "llm" | "rule";
+      relation ∈ {延续, 修正, 无关, unknown}（unknown = 降级态）;
+      degraded = True 表示 relation 不是模型的显式判定（无候选/失败/规则兜底）;
+      anchored_key/anchored_id = 被锚定的旧记忆(仅 relation∈{延续,修正} 时
+        给 key; 显式"无关"保留候选 key 供审计, 但调用方只在
+        anchored_key == 当前候选 时才允许否决);
+      source = "llm" | "rule" | "none" | "error";
       model = LLM 模型名(仅 llm 路径) | None;
       top_candidates = 原样候选(供上层写 provenance 参考)。
     """
     candidates = candidates or []
     if not candidates:
-        return {"relation": "无关", "anchored_key": None, "anchored_id": None,
-                "reason": "no-candidates", "source": "rule", "model": None,
+        # 无候选 ≠ 无关：这是降级态，绝不参与否决（P1 三态化）。
+        return {"relation": RELATION_UNKNOWN, "degraded": True,
+                "anchored_key": None, "anchored_id": None,
+                "reason": "no-candidates", "source": "none", "model": None,
                 "top_candidates": []}
 
     # 候选已按相似度降序(pre-sorted by search_multi); 取 top 作最相似参照
@@ -222,7 +241,10 @@ def classify_relation(new_content: str, candidates: list, llm=None) -> dict:
                 reason = str(obj.get("reason") or "")[:200]
                 anchored_id = _find_id(candidates, anchored_key) or top.get("id")
                 model = getattr(llm, "model", None)
-                return {"relation": relation, "anchored_key": anchored_key,
+                # 未知标签 → 降级态；显式"无关"才保留可否决的 negative。
+                degraded = (relation == RELATION_UNKNOWN)
+                return {"relation": relation, "degraded": degraded,
+                        "anchored_key": anchored_key,
                         "anchored_id": anchored_id, "reason": reason,
                         "source": "llm", "model": model,
                         "top_candidates": candidates}
@@ -230,12 +252,21 @@ def classify_relation(new_content: str, candidates: list, llm=None) -> dict:
             logger.warning("[anchoring] llm classify failed: %s", type(e).__name__)
 
     # ---- 规则 fallback ----
-    relation = _rule_relation(new_content, top)
-    anchored_key = top.get("key") if relation in ("延续", "修正") else None
-    anchored_id = top.get("id") if relation in ("延续", "修正") else None
-    return {"relation": relation, "anchored_key": anchored_key,
+    # 只信肯定信号：规则判"延续/修正"仍可用（它只会多写 derived_from 指针）；
+    # 规则判"无关"是启发式否定，不可当明确否决 → 降级 unknown。
+    raw_relation = _rule_relation(new_content, top)
+    if raw_relation == "无关":
+        return {"relation": RELATION_UNKNOWN, "degraded": True,
+                "anchored_key": None, "anchored_id": None,
+                "reason": "rule-fallback:negative-not-trusted",
+                "source": "rule", "model": None,
+                "top_candidates": candidates}
+    anchored_key = top.get("key")
+    anchored_id = top.get("id")
+    return {"relation": raw_relation, "degraded": True,
+            "anchored_key": anchored_key,
             "anchored_id": anchored_id,
-            "reason": "rule-fallback" + ((":" + str(top.get("key"))) if anchored_key else ""),
+            "reason": "rule-fallback" + ((":" + str(anchored_key)) if anchored_key else ""),
             "source": "rule", "model": None,
             "top_candidates": candidates}
 
@@ -262,10 +293,11 @@ def _build_prompt(new_content: str, candidates: list) -> str:
         "新记忆:\n" + str(new_content)[:500] + "\n\n"
         "检索到的相似旧记忆:\n" + cand_block + "\n\n"
         "请判断新记忆与哪个旧记忆的关系。只输出 JSON:\n"
-        '{"relation":"延续|修正|无关", "anchored_key":"<最相关的旧记忆key>", '
+        '{"relation":"延续|修正|无关|unknown", "anchored_key":"<最相关的旧记忆key>", '
         '"reason":"一句话理由"}\n'
         "- 延续: 新记忆是旧记忆的补充/延续/补充细节\n"
         "- 修正: 新记忆纠正/更新了旧记忆(如价格/状态/结论变化)\n"
-        "- 无关: 与所有旧记忆实质无关\n"
+        "- 无关: 明确判断新记忆与候选记忆事实互斥/主题无关\n"
+        "- unknown: 候选信息不足或无法判断(不确定时用它, 不要用无关代替)\n"
         "anchored_key 从候选 key 里选; 若无相关候选则回空串。"
     )

@@ -1,0 +1,49 @@
+{
+ "db": "/home/joe/memory-kit-v2/var/memory-sandbox.db",
+ "n_rows": 2096,
+ "raw_gray_pairs": 199,
+ "boosted_gray_pairs": 198,
+ "evaluated": 198,
+ "rule": {
+  "n": 198,
+  "relation": {
+   "修正": 23,
+   "unknown": 132,
+   "延续": 43
+  },
+  "source": {
+   "rule": 198
+  },
+  "degraded": 198,
+  "would_veto": 0,
+  "reason": {
+   "critical_mismatch": 117,
+   "anchor_corrected": 6,
+   "vector_only": 53,
+   "anchor_continued": 22
+  },
+  "samples": []
+ },
+ "llm": {
+  "n": 198,
+  "relation": {
+   "延续": 153,
+   "修正": 14,
+   "unknown": 23,
+   "无关": 8
+  },
+  "source": {
+   "llm": 163,
+   "rule": 35
+  },
+  "degraded": 38,
+  "would_veto": 0,
+  "reason": {
+   "critical_mismatch": 117,
+   "anchor_corrected": 2,
+   "anchor_continued": 70,
+   "vector_only": 9
+  },
+  "samples": []
+ }
+}

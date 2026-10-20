@@ -2,9 +2,11 @@
 """记忆生命周期模块 — 衰减/去重/冲突/学习。MemoryLifecycle mixin class。"""
 import json
 import logging
+import os
 import re
 import struct
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -124,6 +126,299 @@ def _critical_merge_mismatch(old_content: str, new_content: str) -> bool:
     if bool(neg_re.search(a)) != bool(neg_re.search(b)):
         return True
     return False
+
+
+# ── P1 合并决策单点（2026-10-20）─────────────────────────────────────────
+# 所有合并路径（learn 快路径 / learn JSON 慢路径 / 实体兜底 / deduplicate）
+# 都只调 _merge_decision()，不允许在调用点自己写 `if fusion >= ...`。
+#
+# 两个 flag（默认都 off = 完全复刻 P0 的 if，回归安全线）:
+#   MERGE_SAFETY_V2   off | shadow | on
+#     off    → 不走矩阵，P0 原样（fusion>=0.85 / overlap>=3 / sim>=threshold，
+#              数字/单位/否定冲突否决）；anchor 结果不参与决策。
+#     shadow → 走矩阵，但灰带 anchor 否决只记 would_veto，不改变合并。
+#     on     → 走矩阵，灰带否决在 ANCHOR_GRAY_BAND=veto 时真正生效。
+#   ANCHOR_GRAY_BAND  off | shadow | veto
+#     off    → 不分类（省掉 LLM/检索；灰带候选按 vector_only 合并）。
+#     shadow → 灰带分类，would_veto 记录但不否决。
+#     veto   → 灰带分类，显式"无关"且 anchored_key 命中当前候选时否决
+#              （需 MERGE_SAFETY_V2=on 才真正生效；否则降级为 shadow）。
+#
+# 阈值参数化：灰带 = [floor, threshold)，threshold 默认 0.92；
+# deduplicate 把自己的 threshold 实参传进来（0.85 的调用无灰带，行为不变）。
+MERGE_FLOOR = 0.85
+MERGE_HIGH_THRESHOLD = 0.92
+
+SOURCE_VECTOR = "vector"
+SOURCE_VECTOR_JSON = "vector_json"
+SOURCE_ENTITY = "entity_fallback"
+SOURCE_DEDUPE = "dedupe"
+_MERGE_SOURCES = (SOURCE_VECTOR, SOURCE_VECTOR_JSON, SOURCE_ENTITY, SOURCE_DEDUPE)
+
+ACTION_MERGE = "MERGE"
+ACTION_KEEP = "KEEP"
+
+MERGE_SAFETY_ENV = "MERGE_SAFETY_V2"
+ANCHOR_GRAY_BAND_ENV = "ANCHOR_GRAY_BAND"
+MERGE_SAFETY_MODES = ("off", "shadow", "on")
+ANCHOR_GRAY_BAND_MODES = ("off", "shadow", "veto")
+
+# 关系判定受控词表（anchoring.py）+ 降级态。只有显式"无关"才有资格否决；
+# unknown = 无候选 / LLM 失败 / 解析失败 / 未知标签 / 规则兜底的否定。
+REL_CONTINUE = "延续"
+REL_CORRECT = "修正"
+REL_UNRELATED = "无关"
+REL_UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class MergePolicy:
+    """合并安全开关的解析结果（一次 learn/dedupe 读一次 env）。"""
+
+    mode: str = "off"
+    anchor_mode: str = "off"
+
+    @property
+    def matrix(self) -> bool:
+        """是否走 P1 矩阵（off = P0 复刻）。"""
+        return self.mode != "off"
+
+    @property
+    def classify_gray(self) -> bool:
+        """灰带是否值得调锚定分类（off = 惰性跳过，省 LLM）。"""
+        return self.anchor_mode != "off"
+
+    @property
+    def veto_applies(self) -> bool:
+        """灰带否决是否真正生效（要求矩阵 on + 灰带 veto）。"""
+        return self.mode == "on" and self.anchor_mode == "veto"
+
+
+@dataclass(frozen=True)
+class MergeDecision:
+    """_merge_decision() 的唯一输出。合并/去重所有路径共用。"""
+
+    action: str                 # MERGE | KEEP
+    reason: str                 # 见 _merge_decision docstring
+    source: str                 # vector | vector_json | entity_fallback | dedupe
+    mode: str                   # off | shadow | on
+    anchor_mode: str            # off | shadow | veto
+    sim: float
+    fusion: float
+    overlap: int
+    boost: float
+    threshold: float
+    floor: float
+    candidate_key: str
+    relation: str | None
+    anchored_key: str | None
+    gray_band: bool
+    # 灰带否决条件成立（显式无关 + anchored_key 命中当前候选）。
+    # shadow 下 = "本应否决"，on 下 = "已否决"；用 veto_applied 区分。
+    would_veto: bool
+    veto_applied: bool
+    # fusion>=threshold 时 anchor 与向量结论分歧（仅供审计；惰性执行下
+    # 生产路径不会分类，见 REPORT 说明）。
+    anchor_disagrees: bool
+    critical_mismatch: bool
+
+
+def _read_merge_mode(name: str, valid: tuple, default: str = "off") -> str:
+    """读三档 flag。空/非法值 → default（off）+ warning，绝不猜。"""
+    raw = (os.environ.get(name) or "").strip().lower()
+    if not raw:
+        return default
+    if raw not in valid:
+        logger.warning("[merge] 非法 %s=%r（可选 %s）→ 按 %s 处理",
+                       name, raw, "/".join(valid), default)
+        return default
+    return raw
+
+
+def read_merge_policy() -> MergePolicy:
+    """解析两个合并安全 flag（默认 off/off）。"""
+    return MergePolicy(
+        mode=_read_merge_mode(MERGE_SAFETY_ENV, MERGE_SAFETY_MODES),
+        anchor_mode=_read_merge_mode(ANCHOR_GRAY_BAND_ENV, ANCHOR_GRAY_BAND_MODES),
+    )
+
+
+def _fusion_score(sim, overlap):
+    """向量+图解信号融合（P0 公式原样搬到模块级：learn 与 shadow 脚本共用）。
+
+    乘性 boost：overlap>=2 → 1.0+0.05*min(overlap,5)（2→1.10, 5→1.25），
+    fusion = min(sim*boost, 1.0)。只在 >=2 时放大，日志打全 sim/overlap/boost。
+    """
+    if overlap >= 2:
+        boost = 1.0 + 0.05 * min(overlap, 5)
+        fusion = min(sim * boost, 1.0)
+    else:
+        boost = 1.0
+        fusion = sim
+    logger.debug("[learn] fusion sim=%.4f overlap=%d boost=%.4f fusion=%.4f",
+                 sim, overlap, boost, fusion)
+    return fusion
+
+
+def _merge_decision(*, source: str, sim: float, fusion: float, overlap: int,
+                    candidate_key: str, relation: str | None = None,
+                    anchored_key: str | None = None,
+                    old_content: str = "", new_content: str = "",
+                    threshold: float = MERGE_HIGH_THRESHOLD,
+                    floor: float = MERGE_FLOOR,
+                    mode: str | None = None,
+                    anchor_mode: str | None = None) -> MergeDecision:
+    """唯一合并判定点（P1，2026-10-20）。
+
+    矩阵（fusion = sim * entity_boost；overlap = 实体重叠数）:
+
+      fusion < floor                         → KEEP  below_floor
+      floor <= fusion < threshold, 无关+命中  → 灰带否决（shadow 记 would_veto）
+      floor <= fusion < threshold, 延续/修正  → MERGE anchor_continued/corrected
+      floor <= fusion < threshold, 其它/未知  → MERGE vector_only
+      fusion >= threshold                    → MERGE high_similarity
+                                               （anchor 不否决，只记 anchor_disagrees）
+      source=entity_fallback, overlap>=3     → MERGE entity_only
+      source=dedupe, sim>=threshold          → MERGE dedupe
+      任一来源，关键事实冲突                  → KEEP critical_mismatch
+
+    P0 兼容：mode=off 时只保留 P0 的三条 if（fusion>=floor / overlap>=3 /
+    sim>=threshold）+ 关键事实否决，reason 也保持 P0 字面值
+    （vector_only / entity_only / dedupe），保证 merge_events 逐字节一致。
+
+    anchor_disagrees 只在 relation 由调用方显式给出时才可能为 True：
+    生产惰性路径在 fusion>=threshold 时根本不分类，因此该字段在生产中
+    实际恒为 False，仅作审计预留（REPORT-P1 有说明）。
+    """
+    if source not in _MERGE_SOURCES:
+        raise ValueError("unknown merge source: %r" % (source,))
+    if mode is None or anchor_mode is None:
+        _p = read_merge_policy()
+        mode = _p.mode if mode is None else mode
+        anchor_mode = _p.anchor_mode if anchor_mode is None else anchor_mode
+
+    sim = float(sim)
+    fusion = float(fusion)
+    threshold = float(threshold)
+    floor = float(floor)
+    overlap = int(overlap)
+    boost = (fusion / sim) if sim > 0 else 1.0
+    critical = _critical_merge_mismatch(old_content, new_content)
+    gray_band = (source in (SOURCE_VECTOR, SOURCE_VECTOR_JSON)
+                 and floor <= fusion < threshold)
+    # 唯一有资格否决的形态：显式"无关" + anchored_key 正好是当前候选。
+    # 无候选/失败/未知标签都归一成 unknown，不会落到这里（三态化的意义）。
+    veto_condition = bool(
+        relation == REL_UNRELATED and anchored_key
+        and str(anchored_key) == str(candidate_key))
+    applied = (mode == "on" and anchor_mode == "veto")
+
+    def _decide(action: str, reason: str, *, would_veto: bool = False,
+                veto_applied: bool = False,
+                anchor_disagrees: bool = False) -> MergeDecision:
+        return MergeDecision(
+            action=action, reason=reason, source=source, mode=mode,
+            anchor_mode=anchor_mode, sim=sim, fusion=fusion,
+            overlap=overlap, boost=boost, threshold=threshold, floor=floor,
+            candidate_key=candidate_key, relation=relation,
+            anchored_key=anchored_key, gray_band=gray_band,
+            would_veto=would_veto, veto_applied=veto_applied,
+            anchor_disagrees=anchor_disagrees,
+            critical_mismatch=critical)
+
+    if critical:
+        return _decide(ACTION_KEEP, "critical_mismatch")
+
+    if source == SOURCE_ENTITY:
+        if overlap >= 3:
+            return _decide(ACTION_MERGE, "entity_only")
+        return _decide(ACTION_KEEP, "entity_overlap_lt3")
+
+    if source == SOURCE_DEDUPE:
+        if sim >= threshold:
+            return _decide(ACTION_MERGE, "dedupe")
+        return _decide(ACTION_KEEP, "below_threshold")
+
+    # 向量路径（vector / vector_json）
+    if fusion < floor:
+        return _decide(ACTION_KEEP, "below_floor")
+
+    if mode == "off":
+        # P0 原样：只看 fusion>=floor，anchor 不参与，reason 保持 vector_only。
+        return _decide(ACTION_MERGE, "vector_only")
+
+    if fusion >= threshold:
+        return _decide(ACTION_MERGE, "high_similarity",
+                       anchor_disagrees=veto_condition)
+
+    # 灰带：唯一允许 anchor 干预的区间
+    if relation == REL_CONTINUE:
+        return _decide(ACTION_MERGE, "anchor_continued")
+    if relation == REL_CORRECT:
+        return _decide(ACTION_MERGE, "anchor_corrected")
+    if veto_condition:
+        if applied:
+            return _decide(ACTION_KEEP, "gray_band_veto",
+                           would_veto=True, veto_applied=True)
+        # shadow：记 would_veto，但保持旧行为（合并）
+        return _decide(ACTION_MERGE, "vector_only", would_veto=True)
+    return _decide(ACTION_MERGE, "vector_only")
+
+
+def _anchor_gray_band(new_content, matches, *, anchor: bool, anchor_llm,
+                      anchor_top_k: int, policy: MergePolicy,
+                      threshold: float = MERGE_HIGH_THRESHOLD,
+                      floor: float = MERGE_FLOOR):
+    """P1-3 灰带惰性锚定：只有灰带候选存在时才调 classify_relation()。
+
+    参数 matches = [(fusion, sim, overlap, row_dict), ...]（已过 floor 的候选）。
+    返回 (anchor_info | None, derived_from | None)。
+
+    没有灰带候选（或 anchor=False / ANCHOR_GRAY_BAND=off）→ 直接返回 None，
+    一次检索/LLM 都不做 —— "惰性真的省了"的落点。
+    """
+    if not anchor or not policy.classify_gray or not matches:
+        return None, None
+
+    gray = [m for m in matches if floor <= float(m[0]) < float(threshold)]
+    if not gray:
+        return None, None
+    gray.sort(key=lambda m: m[0], reverse=True)
+
+    cands = []
+    for _fusion, _sim, _overlap, _row in gray[:max(1, int(anchor_top_k))]:
+        cands.append({
+            "key": _row.get("key"),
+            "id": _row.get("id"),
+            "content": _row.get("content") or "",
+            "similarity": round(float(_sim), 6),
+            "entity_overlap": int(_overlap),
+        })
+
+    try:
+        rel = classify_relation(new_content, cands, llm=anchor_llm)
+    except Exception as e:  # noqa: BLE001 — 锚定绝不阻塞写入
+        logger.warning("[learn] anchoring failed: %s", type(e).__name__)
+        rel = {"relation": REL_UNKNOWN, "anchored_key": None,
+               "anchored_id": None, "reason": "error:" + type(e).__name__,
+               "source": "error", "model": None, "degraded": True}
+
+    anchor_info = {
+        "relation": rel.get("relation"),
+        "anchored_key": rel.get("anchored_key"),
+        "anchored_id": rel.get("anchored_id"),
+        "reason": rel.get("reason"),
+        "source": rel.get("source"),
+        "model": rel.get("model"),
+        "degraded": bool(rel.get("degraded")),
+    }
+    derived_from = None
+    if rel.get("relation") in (REL_CONTINUE, REL_CORRECT) and rel.get("anchored_key"):
+        derived_from = rel.get("anchored_key")
+    logger.info("[learn] anchor(gray-band): relation=%s key=%s source=%s degraded=%s",
+                anchor_info["relation"], anchor_info["anchored_key"],
+                anchor_info["source"], anchor_info["degraded"])
+    return anchor_info, derived_from
 
 
 # learn() 预计算向量哨兵（learn_batch 批量路径用）：
@@ -309,6 +604,8 @@ class MemoryLifecycle:
           dry_run     是否干跑
         """
         t_start = time.monotonic()
+        # P1-2: dedupe 也接唯一决策点（flag 一次读，逐对复用）
+        policy = read_merge_policy()
         rows = self._conn.execute(
             "SELECT id, key, content, importance, vector, vector_bin, sparse, "
             "status, vector_stale FROM memories "
@@ -409,14 +706,23 @@ class MemoryLifecycle:
                     j = idxs[int(pos)]
                     if j <= i:
                         continue
-                    if self._cosine_similarity(vi, vecs[j]) >= threshold:
-                        # P0 保守否决：数字/单位/否定冲突不合并（防止 550/650
-                        # 这类高余弦但事实不同的对误合并）。
-                        if _critical_merge_mismatch(rows[i]["content"],
-                                                    rows[j]["content"]):
-                            vetoed += 1
-                            continue
-                        _union(i, j)
+                    pair_sim = self._cosine_similarity(vi, vecs[j])
+                    if pair_sim < threshold:
+                        continue
+                    # P1-2/P1-4：dedupe 也走唯一决策点（关键事实否决已并入）。
+                    # floor=threshold → 灰带为空，dedupe 天然不走 anchor（同阈值同写回）。
+                    pair_decision = _merge_decision(
+                        source=SOURCE_DEDUPE, sim=pair_sim, fusion=pair_sim,
+                        overlap=0, candidate_key=rows[j]["key"],
+                        old_content=rows[i]["content"],
+                        new_content=rows[j]["content"],
+                        threshold=threshold, floor=threshold,
+                        mode=policy.mode, anchor_mode=policy.anchor_mode)
+                    if pair_decision.critical_mismatch:
+                        vetoed += 1
+                    if pair_decision.action != ACTION_MERGE:
+                        continue
+                    _union(i, j)
             if skipped:
                 break
 
@@ -1755,29 +2061,12 @@ class MemoryLifecycle:
             return old_val
 
 
-        def _fusion_score(sim, overlap):
-            """向量+图解信号融合。乘性boost，Hindsight保守路线。
-
-            P0（2026-10-20）：只加日志，不改评分公式。每条候选的
-            sim/overlap/boost/最终 fusion 都打 debug，合并时 info 日志
-            再打一次，事后可从日志反推阈值命中原因。
-            """
-            if overlap >= 2:
-                boost = 1.0 + 0.05 * min(overlap, 5)  # 2个→1.10, 5个→1.25
-                fusion = min(sim * boost, 1.0)
-            else:
-                boost = 1.0
-                fusion = sim
-            logger.debug("[learn] fusion sim=%.4f overlap=%d boost=%.4f fusion=%.4f",
-                         sim, overlap, boost, fusion)
-            return fusion
-
         def _merge_writeback(best, *, merged_content, new_imp, merged_sessions,
                              merged_tags, category, entities_json,
                              merged_event_time, merged_src_session_id,
                              merged_src_msg_id, merged_msg_ids,
                              merged_raw_excerpt, merged_derived_from, new_prov,
-                             sim, overlap, boost, reason):
+                             sim, overlap, boost, reason, decision=None):
             """唯一合并写回点（P0, 2026-10-20）：向量/实体两条 learn 合并路径共用。
 
             修复四个写回不变量：
@@ -1786,7 +2075,9 @@ class MemoryLifecycle:
               2. decay_profile 用 COALESCE(?, decay_profile)，不写死 None。
               3. derived_from 由调用方算好（只在 anchor 指向别的 key 时才改），
                  绝不写成本行 key 自指。
-              4. 每次合并写 merge_events 审计行（全文留痕）。
+              4. 每次合并写 merge_events 审计行（全文留痕）；P1 起
+                 decision/relation/anchored_key/would_veto 取自 _merge_decision，
+                 不再写死 None/0（off 档下与 P0 字面值一致）。
             """
             old_content = best.get("content") or ""
             vec_json = vec_bin = sparse_json = None
@@ -1837,46 +2128,19 @@ class MemoryLifecycle:
                     "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'))",
                     (best["key"], "", old_content, content, merged_content,
                      max(-1.0, min(1.0, float(sim))), int(overlap),
-                     max(1.0, float(boost)), None, None,
-                     "MERGE", reason, 0))
+                     max(1.0, float(boost)),
+                     (decision.relation if decision else None),
+                     (decision.anchored_key if decision else None),
+                     (decision.action if decision else "MERGE"), reason,
+                     int(bool(decision.would_veto)) if decision else 0))
 
-        # ── P1 经验锚定 (2026-08-29): 写入前 top-k 检索相似旧记忆, 标注关系 ──
-        # 新记忆入库前检索 top-k 相似旧记忆, 让模型显式输出"与旧记忆X的关系
-        # (延续/修正/无关)"再存储。语义消歧从 FFN 参数记忆搬到情景记忆。
-        # 默认关闭(anchor=False → 行为与旧版逐字节一致, 239 测试不受影响)。
-        # LLM 失败/离线 → classify_relation 内部降级到纯规则, 绝不阻塞写入。
+        # ── P1 合并安全 v2（2026-10-20）──────────────────────────────────
+        # 两个 flag 默认 off = 完全复刻 P0 的 if（回归安全线）；沙箱用 export 打开。
+        # 锚定改为惰性（P1-3）：候选落进灰带才分类，无灰带一次检索/LLM 都不做。
+        policy = read_merge_policy()
+        merge_threshold = MERGE_HIGH_THRESHOLD
         anchor_info = None
         anchor_derived_from = None
-        if anchor:
-            try:
-                cands = self.search_multi(content, limit=anchor_top_k)
-                for c in cands:
-                    try:
-                        old_ents = json.loads(c.get("entities")) if c.get("entities") else []
-                        old_ents = old_ents if isinstance(old_ents, list) else []
-                    except (json.JSONDecodeError, TypeError):
-                        old_ents = []
-                    c["entity_overlap"] = len(set(new_entities) & set(old_ents))
-                _rel = classify_relation(content, cands, llm=anchor_llm)
-                anchor_info = {
-                    "relation": _rel.get("relation"),
-                    "anchored_key": _rel.get("anchored_key"),
-                    "anchored_id": _rel.get("anchored_id"),
-                    "reason": _rel.get("reason"),
-                    "source": _rel.get("source"),
-                    "model": _rel.get("model"),
-                }
-                if _rel.get("relation") in ("延续", "修正") and _rel.get("anchored_key"):
-                    anchor_derived_from = _rel.get("anchored_key")
-                logger.info("[learn] anchor: relation=%s key=%s source=%s",
-                            anchor_info["relation"], anchor_info["anchored_key"],
-                            anchor_info["source"])
-            except Exception as e:  # noqa: BLE001
-                logger.warning("[learn] anchoring failed: %s", type(e).__name__)
-                anchor_info = {"relation": "无关", "anchored_key": None,
-                               "anchored_id": None,
-                               "reason": "error:" + type(e).__name__,
-                               "source": "error", "model": None}
 
         # 主路径: 向量去重（嵌入在线时）
         if qvec:
@@ -1930,13 +2194,32 @@ class MemoryLifecycle:
                         fusion = _fusion_score(sim, overlap)
                         if fusion >= 0.85:
                             matches.append((fusion, sim, overlap, dict(r)))
-            # P0 保守否决：关键事实冲突的候选不参与合并（另存新条目）。
-            matches = [m for m in matches
-                       if not _critical_merge_mismatch(
-                           (m[3].get("content") or ""), content)]
-            if matches:
-                matches.sort(key=lambda x: x[0], reverse=True)
-                best = matches[0][3]
+            # ── P1-3 惰性锚定：只有灰带候选存在时才调 classify_relation ──
+            anchor_info, anchor_derived_from = _anchor_gray_band(
+                content, matches, anchor=anchor, anchor_llm=anchor_llm,
+                anchor_top_k=anchor_top_k, policy=policy,
+                threshold=merge_threshold)
+
+            # ── P1-4 统一决策点：_critical_merge_mismatch 已并入
+            # _merge_decision；每条候选一个决策，KEEP 的候选（关键事实冲突 /
+            # 灰带否决）不参与 best 选择（与 P0 的"过滤后再选"等价）。──
+            _vector_source = SOURCE_VECTOR if blobs else SOURCE_VECTOR_JSON
+            graded = []
+            for _fusion, _sim, _overlap, _row in matches:
+                _dec = _merge_decision(
+                    source=_vector_source, sim=_sim, fusion=_fusion,
+                    overlap=_overlap, candidate_key=_row["key"],
+                    relation=(anchor_info or {}).get("relation"),
+                    anchored_key=(anchor_info or {}).get("anchored_key"),
+                    old_content=(_row.get("content") or ""),
+                    new_content=content, threshold=merge_threshold,
+                    floor=MERGE_FLOOR, mode=policy.mode,
+                    anchor_mode=policy.anchor_mode)
+                if _dec.action == ACTION_MERGE:
+                    graded.append((_fusion, _sim, _overlap, _row, _dec))
+            if graded:
+                graded.sort(key=lambda _t: _t[0], reverse=True)
+                _fusion, _sim, _overlap, best, decision = graded[0]
                 old_key = best["key"]
                 old_imp = best["importance"] or 0.5
                 new_imp = min(max(imp, old_imp + 0.05), 0.98)
@@ -2030,9 +2313,9 @@ class MemoryLifecycle:
                     merged_raw_excerpt=merged_raw_excerpt,
                     merged_derived_from=merged_derived_from,
                     new_prov=new_prov,
-                    sim=matches[0][1], overlap=matches[0][2],
-                    boost=(matches[0][0] / matches[0][1] if matches[0][1] else 1.0),
-                    reason="vector_only")
+                    sim=_sim, overlap=_overlap,
+                    boost=(_fusion / _sim if _sim else 1.0),
+                    reason=decision.reason, decision=decision)
                 if merged_entities:
                     # 实体关联表同步（与 set() 的 _update_entity_links 对齐）
                     try:
@@ -2040,15 +2323,16 @@ class MemoryLifecycle:
                     except Exception:
                         pass
                 merged = True
-                logger.info("[learn] merged into existing key=%s (fusion=%.3f, sim=%.3f, entity_overlap=%d, boost=%.3f, imp=%.2f→%.2f, verify=pending)",
-                            old_key, matches[0][0], matches[0][1], matches[0][2],
-                            (matches[0][0] / matches[0][1] if matches[0][1] else 1.0),
+                logger.info("[learn] merged into existing key=%s (fusion=%.3f, sim=%.3f, entity_overlap=%d, boost=%.3f, reason=%s, would_veto=%s, imp=%.2f→%.2f, verify=pending)",
+                            old_key, _fusion, _sim, _overlap,
+                            (_fusion / _sim if _sim else 1.0),
+                            decision.reason, decision.would_veto,
                             old_imp, new_imp)
                 _episodic_touch()
                 v_status = _maybe_auto_verify(old_key, new_imp, merged_content)
                 return {"key": old_key, "category": category, "importance": new_imp,
                         "tags": ",".join(merged_tags), "merged": True,
-                        "sim": round(matches[0][1], 3), "fusion": round(matches[0][0], 3),
+                        "sim": round(_sim, 3), "fusion": round(_fusion, 3),
                         "verify": v_status}
 
         # 兜底: 嵌入离线 + 实体去重
@@ -2061,13 +2345,21 @@ class MemoryLifecycle:
                 overlap = _entity_overlap(new_entities, r["entities"])
                 if overlap >= 3:
                     matches.append((overlap, dict(r)))
-            # P0 保守否决：同向量路径，关键事实冲突的候选不合并。
-            matches = [m for m in matches
-                       if not _critical_merge_mismatch(
-                           (m[1].get("content") or ""), content)]
-            if matches:
-                matches.sort(key=lambda x: x[0], reverse=True)
-                best = matches[0][1]
+            # ── P1-4 统一决策点（实体兜底路径）：关键事实冲突同样并入决策。──
+            graded = []
+            for _overlap, _row in matches:
+                _dec = _merge_decision(
+                    source=SOURCE_ENTITY, sim=0.0, fusion=0.0,
+                    overlap=_overlap, candidate_key=_row["key"],
+                    old_content=(_row.get("content") or ""),
+                    new_content=content, threshold=merge_threshold,
+                    floor=MERGE_FLOOR, mode=policy.mode,
+                    anchor_mode=policy.anchor_mode)
+                if _dec.action == ACTION_MERGE:
+                    graded.append((_overlap, _row, _dec))
+            if graded:
+                graded.sort(key=lambda _t: _t[0], reverse=True)
+                _overlap, best, decision = graded[0]
                 old_key = best["key"]
                 old_imp = best["importance"] or 0.5
                 new_imp = min(max(imp, old_imp + 0.05), 0.98)
@@ -2146,21 +2438,21 @@ class MemoryLifecycle:
                     merged_raw_excerpt=merged_raw_excerpt,
                     merged_derived_from=merged_derived_from,
                     new_prov=new_prov,
-                    sim=0.0, overlap=matches[0][0],
-                    boost=1.0, reason="entity_only")
+                    sim=0.0, overlap=_overlap,
+                    boost=1.0, reason=decision.reason, decision=decision)
                 if merged_entities:
                     try:
                         self._update_entity_links(best["id"], old_key, merged_entities)
                     except Exception:
                         pass
                 merged = True
-                logger.info("[learn] entity-only merge into key=%s (overlap=%d, boost=1.000, imp=%.2f→%.2f, verify=pending)",
-                            old_key, matches[0][0], old_imp, new_imp)
+                logger.info("[learn] entity-only merge into key=%s (overlap=%d, boost=1.000, reason=%s, imp=%.2f→%.2f, verify=pending)",
+                            old_key, _overlap, decision.reason, old_imp, new_imp)
                 _episodic_touch()
                 v_status = _maybe_auto_verify(old_key, new_imp, merged_content)
                 return {"key": old_key, "category": category, "importance": new_imp,
                         "tags": ",".join(merged_tags), "merged": True,
-                        "sim": 0, "fusion": round(matches[0][0] / 5.0, 3),
+                        "sim": 0, "fusion": round(_overlap / 5.0, 3),
                         "verify": v_status}
 
         # ---- No match found — create new entry ----

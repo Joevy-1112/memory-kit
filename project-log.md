@@ -633,3 +633,17 @@ Qwen 调 memory_save 返回"已记住"(成功消息), 但快照库 /tmp/qwen38_m
 - 生产仓库 `/home/joe/memory-kit` 与生产库 `~/.hermes/memory.db` 未被本次实施改动（仅被运行中的 Hermes 正常写入）。
 
 - **2026-10-20 09:01 Joe 拍板**：保留 `_critical_merge_mismatch()` 保守否决，作为 P0 已批准增量（不推迟到 P1）。P1 做统一决策点 `_merge_decision()` 时把它并进去，不要留两套判断并存。
+
+## 2026-10-20 P1 统一决策点（sandbox）
+
+- **实施方**：dsh。`_merge_decision()` + `MergeDecision`（`lifecycle.py:198/263`）；两个 flag `MERGE_SAFETY_V2` / `ANCHOR_GRAY_BAND`（默认 off，非法值按 off 处理）；四条路径（learn 快路径 / learn JSON 慢路径 / 实体兜底 / deduplicate）全部接入，调用点不再自己写 `if fusion >= ...`；`_critical_merge_mismatch` 并进决策点，全仓只剩一个调用点；`anchoring.py` 加 `degraded` 完成三态化（只有显式 `无关` 且有 `anchored_key` 才够格 veto）。
+- **Joe 拍板**：矩阵里的 0.92 参数化为 `deduplicate(threshold=...)`，灰带 = `[0.85, threshold)`；`off` 档完全不走矩阵、逐字节复刻 P0。沙箱默认不做代码级自动判定（代码 off + export 打开）。
+- **甲方独立验收**：
+  - 自行复跑 `run_tests.py`：**326 tests / OK (skipped=2) / EXIT 0**（278 基线 + 48 新增）。
+  - 自行跑 `scripts/p1_identity_check.py`：**PASS** —— `git worktree` 拉 `f0d3631` 双跑，17 个返回 dict 全等 + 44 行表数据（时间列归一）零差异，四条路径真实跑到。
+  - 灰带 shadow 数据自行统计（`var/p1-shadow-grayband.jsonl`，198 行）：延续 153 / 修正 14 / unknown 23 / 无关 8，`would_veto` 全 0。
+- **核心实证结论：anchor veto 在当前数据上没有增量。** 117/198（59.1%）先被 P0 的 `_critical_merge_mismatch` 判 KEEP；8 个显式"无关"全部落在其中，`would_veto = 0`。按设计 §1.9 定的规矩（shadow 100–200 样本再决定），**不开 `veto`**。P1 的收益在架构层：决策收口、`unknown` 不会被误当否决、无灰带候选时 `classify_relation()` 调用 0 次。
+- **三个已知代价**（dsh 主动列出，已复核）：默认 off 下 `anchor=True` 不再写 anchor 元数据（惰性的直接代价）；`anchor_disagrees` 生产上恒 False（`>=threshold` 不触发分类，字段为审计预留）；`critical_mismatch` 优先于 anchor（所有档位）。
+- **环境实测**：35/198（17.7%）LLM 分类未拿到可解析 JSON → 规则降级；三态化保证这些降级不会变成否决。
+- 沙箱库 `64450135…` 本次会话 mtime/sha256 未变；生产库 mtime 持续变化是运行中 Hermes 在写，dsh 只做过 `stat`/`sha256sum`。
+- 未提交遗留（本次之前就存在）：`overlay/mcp_memory_server.py`、`uv.lock`。
