@@ -649,3 +649,14 @@ Qwen 调 memory_save 返回"已记住"(成功消息), 但快照库 /tmp/qwen38_m
 - 未提交遗留（本次之前就存在）：`overlay/mcp_memory_server.py`、`uv.lock`。
 
 - **2026-10-20 09:52 数据可复现性复核**：dsh 在 REPORT-P0 §4.6 报的 `550 vs 650 = 0.9434 / 2GB vs 2048MB = 0.9178 / Python 3.10 vs 3.12 = 0.9314` 用短语形式复现不出来（实测 0.7895 / 0.6581 / 0.8600）。查证原因是它测的是完整句子而报告没写清文本：长句实测 0.9842 / 0.9335 / 0.9698，仍然过 0.85/0.92 两道闸门，`_critical_merge_mismatch` 的依据成立。REPORT-P0 已追加更正段。教训：报告里的"实测"必须带可复现输入文本与命令。
+
+## 2026-10-20 P2 skill corpus（sandbox）
+
+- **实施方**：dsh。仓库 `/home/joe/memory-kit-v2`，沙箱库 `var/memory-sandbox.db`。
+- **改动**：新增 `memorykit/corpus.py`（fence-aware 切块 + `corpus_chunks`/`corpus_entity_links`/`corpus_manifest` + 增量索引 + 召回 + CLI）、`tests/test_p2_corpus.py`（23 用例）、`scripts/p2_chunk_stats.py`、`scripts/p2_sample_recall.py`、`scripts/p2_weight_sensitivity.py`、`scripts/p2_expected_ranks.py`、`REPORT-P2-20261020.md`。未提交。
+- **落地拍板**：只索引活跃 248（`.archive` 64 不索引）；frontmatter 单独成块（+248，内容只留 name+description）；manifest 字段按 8 列；权重 `0.10/0.25` 标 `# 待 P4 消融`。
+- **实测**：312 总 / 64 archive / 248 active；实际 **6,225 块**（248 fm + 247 preamble + 4,880 逻辑标题 + 850 二切），不是预估 5,790；建库 **1,746s（29.1 min）**，3.6 chunks/s；最终 13,175 实体 / 177,518 链接；`PRAGMA integrity_check=ok`，memories 仍 2100 行。
+- **5 query 抽样**：v100-llm-inference rank2、local-gguf-serving top1-3、feishu top1-3（frontmatter rank1）、teaching-concepts-quiz rank1；「耳机电池改 type-C」是活跃语料覆盖空档（windows-peripherals 不含耳机正文，windows-system-diagnostics 仅 rank8）。
+- **敏感性**：`w_e∈{0,0.10,0.25}` × `w_l∈{0,0.25,0.50}` × 5 query。3/5 query 的 top-1 技能会变，5/5 的 top-3 技能集合会变：`w_e=0` 让 strata 的 top-1 变错，`w_l=0.50` 让 V100 的 top-1 变错。**P4 消融不能省**；P4 建议实体 IDF + lexical IDF/BM25。
+- **测试**：P2 23 用例 OK；全量 **349 tests / OK (skipped=2)**。
+- **生产**：`~/.hermes/memory.db` 前后指纹一致（`69e09846…`，122,355,712 B，09:54:20），本次只读；未改 `/home/joe/memory-kit`、`~/.dsh`、运行中服务。

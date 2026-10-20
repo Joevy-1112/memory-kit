@@ -1,0 +1,2130 @@
+{
+  "queries": [
+    "V100 上跑 vLLM 显存不够怎么办",
+    "strata 解码速度慢",
+    "飞书回复被截断，卡片显示不全",
+    "耳机电池不行了，想改成 type-c 充电",
+    "无穷小的阶 泰勒展开怎么算"
+  ],
+  "we_values": [
+    0.0,
+    0.1,
+    0.25
+  ],
+  "wl_values": [
+    0.0,
+    0.25,
+    0.5
+  ],
+  "base": {
+    "we": 0.1,
+    "wl": 0.25
+  },
+  "records": [
+    {
+      "query": "V100 上跑 vLLM 显存不够怎么办",
+      "combos": [
+        {
+          "we": 0.0,
+          "wl": 0.0,
+          "top3": [
+            [
+              "local-llm-training",
+              "坑"
+            ],
+            [
+              "v100-llm-inference",
+              "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)"
+            ],
+            [
+              "headless-gpu-bringup",
+              "阶段 6：嵌入模型/llama.cpp 上 GPU（-ngl 不生效的坑） (part 6/12)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-llm-training",
+              "heading": "坑",
+              "cos": 0.713928,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 0.713928
+            },
+            {
+              "skill": "v100-llm-inference",
+              "heading": "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)",
+              "cos": 0.690071,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 0.690071
+            },
+            {
+              "skill": "headless-gpu-bringup",
+              "heading": "阶段 6：嵌入模型/llama.cpp 上 GPU（-ngl 不生效的坑） (part 6/12)",
+              "cos": 0.680989,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 0.680989
+            }
+          ]
+        },
+        {
+          "we": 0.0,
+          "wl": 0.25,
+          "top3": [
+            [
+              "local-llm-training",
+              "坑"
+            ],
+            [
+              "v100-llm-inference",
+              "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)"
+            ],
+            [
+              "h3-video-generation",
+              "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-llm-training",
+              "heading": "坑",
+              "cos": 0.713928,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 0.797261
+            },
+            {
+              "skill": "v100-llm-inference",
+              "heading": "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)",
+              "cos": 0.690071,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 0.773405
+            },
+            {
+              "skill": "h3-video-generation",
+              "heading": "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)",
+              "cos": 0.646895,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 0.771895
+            }
+          ]
+        },
+        {
+          "we": 0.0,
+          "wl": 0.5,
+          "top3": [
+            [
+              "pc-build-planning",
+              "Decision tree (part 3/4)"
+            ],
+            [
+              "h3-video-generation",
+              "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)"
+            ],
+            [
+              "local-llm-training",
+              "坑"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "pc-build-planning",
+              "heading": "Decision tree (part 3/4)",
+              "cos": 0.570008,
+              "entity": 1,
+              "lexical": 0.666667,
+              "total": 0.903342
+            },
+            {
+              "skill": "h3-video-generation",
+              "heading": "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)",
+              "cos": 0.646895,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 0.896895
+            },
+            {
+              "skill": "local-llm-training",
+              "heading": "坑",
+              "cos": 0.713928,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 0.880594
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.0,
+          "top3": [
+            [
+              "local-llm-training",
+              "坑"
+            ],
+            [
+              "v100-llm-inference",
+              "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)"
+            ],
+            [
+              "headless-gpu-bringup",
+              "阶段 6：嵌入模型/llama.cpp 上 GPU（-ngl 不生效的坑） (part 6/12)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-llm-training",
+              "heading": "坑",
+              "cos": 0.713928,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 0.913928
+            },
+            {
+              "skill": "v100-llm-inference",
+              "heading": "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)",
+              "cos": 0.690071,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 0.890071
+            },
+            {
+              "skill": "headless-gpu-bringup",
+              "heading": "阶段 6：嵌入模型/llama.cpp 上 GPU（-ngl 不生效的坑） (part 6/12)",
+              "cos": 0.680989,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 0.880989
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.25,
+          "top3": [
+            [
+              "local-llm-training",
+              "坑"
+            ],
+            [
+              "v100-llm-inference",
+              "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)"
+            ],
+            [
+              "h3-video-generation",
+              "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-llm-training",
+              "heading": "坑",
+              "cos": 0.713928,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 0.997261
+            },
+            {
+              "skill": "v100-llm-inference",
+              "heading": "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)",
+              "cos": 0.690071,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 0.973405
+            },
+            {
+              "skill": "h3-video-generation",
+              "heading": "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)",
+              "cos": 0.646895,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 0.971895
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.5,
+          "top3": [
+            [
+              "h3-video-generation",
+              "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)"
+            ],
+            [
+              "local-llm-training",
+              "坑"
+            ],
+            [
+              "h3-video-generation",
+              "🚀 GGUF / stable-diffusion.cpp 路线 = V100 上 H3 的最终正解(2026-08-15 实测跑通, 快 10-20 倍) (part 3/9)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "h3-video-generation",
+              "heading": "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)",
+              "cos": 0.646895,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 1.096895
+            },
+            {
+              "skill": "local-llm-training",
+              "heading": "坑",
+              "cos": 0.713928,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 1.080594
+            },
+            {
+              "skill": "h3-video-generation",
+              "heading": "🚀 GGUF / stable-diffusion.cpp 路线 = V100 上 H3 的最终正解(2026-08-15 实测跑通, 快 10-20 倍) (part 3/9)",
+              "cos": 0.629176,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 1.079176
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.0,
+          "top3": [
+            [
+              "local-llm-training",
+              "坑"
+            ],
+            [
+              "v100-llm-inference",
+              "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)"
+            ],
+            [
+              "headless-gpu-bringup",
+              "阶段 6：嵌入模型/llama.cpp 上 GPU（-ngl 不生效的坑） (part 6/12)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-llm-training",
+              "heading": "坑",
+              "cos": 0.713928,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 1.213928
+            },
+            {
+              "skill": "v100-llm-inference",
+              "heading": "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)",
+              "cos": 0.690071,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 1.190071
+            },
+            {
+              "skill": "headless-gpu-bringup",
+              "heading": "阶段 6：嵌入模型/llama.cpp 上 GPU（-ngl 不生效的坑） (part 6/12)",
+              "cos": 0.680989,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 1.180989
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.25,
+          "top3": [
+            [
+              "local-llm-training",
+              "坑"
+            ],
+            [
+              "v100-llm-inference",
+              "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)"
+            ],
+            [
+              "h3-video-generation",
+              "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-llm-training",
+              "heading": "坑",
+              "cos": 0.713928,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 1.297261
+            },
+            {
+              "skill": "v100-llm-inference",
+              "heading": "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)",
+              "cos": 0.690071,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 1.273405
+            },
+            {
+              "skill": "h3-video-generation",
+              "heading": "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)",
+              "cos": 0.646895,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 1.271895
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.5,
+          "top3": [
+            [
+              "h3-video-generation",
+              "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)"
+            ],
+            [
+              "local-llm-training",
+              "坑"
+            ],
+            [
+              "h3-video-generation",
+              "🚀 GGUF / stable-diffusion.cpp 路线 = V100 上 H3 的最终正解(2026-08-15 实测跑通, 快 10-20 倍) (part 3/9)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "h3-video-generation",
+              "heading": "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)",
+              "cos": 0.646895,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 1.396895
+            },
+            {
+              "skill": "local-llm-training",
+              "heading": "坑",
+              "cos": 0.713928,
+              "entity": 2,
+              "lexical": 0.333333,
+              "total": 1.380594
+            },
+            {
+              "skill": "h3-video-generation",
+              "heading": "🚀 GGUF / stable-diffusion.cpp 路线 = V100 上 H3 的最终正解(2026-08-15 实测跑通, 快 10-20 倍) (part 3/9)",
+              "cos": 0.629176,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 1.379176
+            }
+          ]
+        }
+      ],
+      "distinct_top1_chunk": 3,
+      "distinct_top3_chunk": 4,
+      "distinct_top1_skill": 3,
+      "distinct_top3_skill": 4,
+      "top1_changed": true,
+      "top3_changed": true,
+      "base_top3": [
+        [
+          "local-llm-training",
+          "坑"
+        ],
+        [
+          "v100-llm-inference",
+          "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)"
+        ],
+        [
+          "h3-video-generation",
+          "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)"
+        ]
+      ]
+    },
+    {
+      "query": "strata 解码速度慢",
+      "combos": [
+        {
+          "we": 0.0,
+          "wl": 0.0,
+          "top3": [
+            [
+              "windows-computer-use",
+              "⚠️ 首次运行慢"
+            ],
+            [
+              "local-gguf-serving",
+              "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)"
+            ],
+            [
+              "gpu-perf-benchmarking",
+              "功耗上限 A/B（`nvidia-smi -pl`） (part 2/2)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "windows-computer-use",
+              "heading": "⚠️ 首次运行慢",
+              "cos": 0.613203,
+              "entity": 0,
+              "lexical": 0.0,
+              "total": 0.613203
+            },
+            {
+              "skill": "local-gguf-serving",
+              "heading": "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)",
+              "cos": 0.602583,
+              "entity": 1,
+              "lexical": 0.25,
+              "total": 0.602583
+            },
+            {
+              "skill": "gpu-perf-benchmarking",
+              "heading": "功耗上限 A/B（`nvidia-smi -pl`） (part 2/2)",
+              "cos": 0.600338,
+              "entity": 1,
+              "lexical": 0.25,
+              "total": 0.600338
+            }
+          ]
+        },
+        {
+          "we": 0.0,
+          "wl": 0.25,
+          "top3": [
+            [
+              "local-gguf-serving",
+              "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)"
+            ],
+            [
+              "local-gguf-serving",
+              "报 decode 速度的规矩(每次用户问“多快”都适用)"
+            ],
+            [
+              "local-gguf-serving",
+              "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-gguf-serving",
+              "heading": "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)",
+              "cos": 0.539059,
+              "entity": 1,
+              "lexical": 0.75,
+              "total": 0.726559
+            },
+            {
+              "skill": "local-gguf-serving",
+              "heading": "报 decode 速度的规矩(每次用户问“多快”都适用)",
+              "cos": 0.599527,
+              "entity": 1,
+              "lexical": 0.5,
+              "total": 0.724527
+            },
+            {
+              "skill": "local-gguf-serving",
+              "heading": "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)",
+              "cos": 0.602583,
+              "entity": 1,
+              "lexical": 0.25,
+              "total": 0.665083
+            }
+          ]
+        },
+        {
+          "we": 0.0,
+          "wl": 0.5,
+          "top3": [
+            [
+              "local-gguf-serving",
+              "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)"
+            ],
+            [
+              "local-gguf-serving",
+              "报 decode 速度的规矩(每次用户问“多快”都适用)"
+            ],
+            [
+              "local-gguf-serving",
+              "估「新模型能不能跑 / 会有多快」: 先算每 token 专家字节 (part 2/2)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-gguf-serving",
+              "heading": "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)",
+              "cos": 0.539059,
+              "entity": 1,
+              "lexical": 0.75,
+              "total": 0.914059
+            },
+            {
+              "skill": "local-gguf-serving",
+              "heading": "报 decode 速度的规矩(每次用户问“多快”都适用)",
+              "cos": 0.599527,
+              "entity": 1,
+              "lexical": 0.5,
+              "total": 0.849527
+            },
+            {
+              "skill": "local-gguf-serving",
+              "heading": "估「新模型能不能跑 / 会有多快」: 先算每 token 专家字节 (part 2/2)",
+              "cos": 0.528262,
+              "entity": 0,
+              "lexical": 0.5,
+              "total": 0.778262
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.0,
+          "top3": [
+            [
+              "local-gguf-serving",
+              "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)"
+            ],
+            [
+              "gpu-perf-benchmarking",
+              "功耗上限 A/B（`nvidia-smi -pl`） (part 2/2)"
+            ],
+            [
+              "local-gguf-serving",
+              "报 decode 速度的规矩(每次用户问“多快”都适用)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-gguf-serving",
+              "heading": "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)",
+              "cos": 0.602583,
+              "entity": 1,
+              "lexical": 0.25,
+              "total": 0.702583
+            },
+            {
+              "skill": "gpu-perf-benchmarking",
+              "heading": "功耗上限 A/B（`nvidia-smi -pl`） (part 2/2)",
+              "cos": 0.600338,
+              "entity": 1,
+              "lexical": 0.25,
+              "total": 0.700338
+            },
+            {
+              "skill": "local-gguf-serving",
+              "heading": "报 decode 速度的规矩(每次用户问“多快”都适用)",
+              "cos": 0.599527,
+              "entity": 1,
+              "lexical": 0.5,
+              "total": 0.699527
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.25,
+          "top3": [
+            [
+              "local-gguf-serving",
+              "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)"
+            ],
+            [
+              "local-gguf-serving",
+              "报 decode 速度的规矩(每次用户问“多快”都适用)"
+            ],
+            [
+              "local-gguf-serving",
+              "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-gguf-serving",
+              "heading": "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)",
+              "cos": 0.539059,
+              "entity": 1,
+              "lexical": 0.75,
+              "total": 0.826559
+            },
+            {
+              "skill": "local-gguf-serving",
+              "heading": "报 decode 速度的规矩(每次用户问“多快”都适用)",
+              "cos": 0.599527,
+              "entity": 1,
+              "lexical": 0.5,
+              "total": 0.824527
+            },
+            {
+              "skill": "local-gguf-serving",
+              "heading": "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)",
+              "cos": 0.602583,
+              "entity": 1,
+              "lexical": 0.25,
+              "total": 0.765083
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.5,
+          "top3": [
+            [
+              "local-gguf-serving",
+              "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)"
+            ],
+            [
+              "local-gguf-serving",
+              "报 decode 速度的规矩(每次用户问“多快”都适用)"
+            ],
+            [
+              "local-image-generation",
+              "FLUX.3 klein(image) V100 实测跑通(2026-10-17, 1024²/16步 83s) (part 1/3)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-gguf-serving",
+              "heading": "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)",
+              "cos": 0.539059,
+              "entity": 1,
+              "lexical": 0.75,
+              "total": 1.014059
+            },
+            {
+              "skill": "local-gguf-serving",
+              "heading": "报 decode 速度的规矩(每次用户问“多快”都适用)",
+              "cos": 0.599527,
+              "entity": 1,
+              "lexical": 0.5,
+              "total": 0.949527
+            },
+            {
+              "skill": "local-image-generation",
+              "heading": "FLUX.3 klein(image) V100 实测跑通(2026-10-17, 1024²/16步 83s) (part 1/3)",
+              "cos": 0.493438,
+              "entity": 1,
+              "lexical": 0.5,
+              "total": 0.843438
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.0,
+          "top3": [
+            [
+              "local-gguf-serving",
+              "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)"
+            ],
+            [
+              "gpu-perf-benchmarking",
+              "功耗上限 A/B（`nvidia-smi -pl`） (part 2/2)"
+            ],
+            [
+              "local-gguf-serving",
+              "报 decode 速度的规矩(每次用户问“多快”都适用)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-gguf-serving",
+              "heading": "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)",
+              "cos": 0.602583,
+              "entity": 1,
+              "lexical": 0.25,
+              "total": 0.852583
+            },
+            {
+              "skill": "gpu-perf-benchmarking",
+              "heading": "功耗上限 A/B（`nvidia-smi -pl`） (part 2/2)",
+              "cos": 0.600338,
+              "entity": 1,
+              "lexical": 0.25,
+              "total": 0.850338
+            },
+            {
+              "skill": "local-gguf-serving",
+              "heading": "报 decode 速度的规矩(每次用户问“多快”都适用)",
+              "cos": 0.599527,
+              "entity": 1,
+              "lexical": 0.5,
+              "total": 0.849527
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.25,
+          "top3": [
+            [
+              "local-gguf-serving",
+              "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)"
+            ],
+            [
+              "local-gguf-serving",
+              "报 decode 速度的规矩(每次用户问“多快”都适用)"
+            ],
+            [
+              "local-gguf-serving",
+              "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-gguf-serving",
+              "heading": "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)",
+              "cos": 0.539059,
+              "entity": 1,
+              "lexical": 0.75,
+              "total": 0.976559
+            },
+            {
+              "skill": "local-gguf-serving",
+              "heading": "报 decode 速度的规矩(每次用户问“多快”都适用)",
+              "cos": 0.599527,
+              "entity": 1,
+              "lexical": 0.5,
+              "total": 0.974527
+            },
+            {
+              "skill": "local-gguf-serving",
+              "heading": "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)",
+              "cos": 0.602583,
+              "entity": 1,
+              "lexical": 0.25,
+              "total": 0.915083
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.5,
+          "top3": [
+            [
+              "local-gguf-serving",
+              "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)"
+            ],
+            [
+              "local-gguf-serving",
+              "报 decode 速度的规矩(每次用户问“多快”都适用)"
+            ],
+            [
+              "local-image-generation",
+              "FLUX.3 klein(image) V100 实测跑通(2026-10-17, 1024²/16步 83s) (part 1/3)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "local-gguf-serving",
+              "heading": "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)",
+              "cos": 0.539059,
+              "entity": 1,
+              "lexical": 0.75,
+              "total": 1.164059
+            },
+            {
+              "skill": "local-gguf-serving",
+              "heading": "报 decode 速度的规矩(每次用户问“多快”都适用)",
+              "cos": 0.599527,
+              "entity": 1,
+              "lexical": 0.5,
+              "total": 1.099527
+            },
+            {
+              "skill": "local-image-generation",
+              "heading": "FLUX.3 klein(image) V100 实测跑通(2026-10-17, 1024²/16步 83s) (part 1/3)",
+              "cos": 0.493438,
+              "entity": 1,
+              "lexical": 0.5,
+              "total": 0.993438
+            }
+          ]
+        }
+      ],
+      "distinct_top1_chunk": 3,
+      "distinct_top3_chunk": 5,
+      "distinct_top1_skill": 2,
+      "distinct_top3_skill": 4,
+      "top1_changed": true,
+      "top3_changed": true,
+      "base_top3": [
+        [
+          "local-gguf-serving",
+          "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)"
+        ],
+        [
+          "local-gguf-serving",
+          "报 decode 速度的规矩(每次用户问“多快”都适用)"
+        ],
+        [
+          "local-gguf-serving",
+          "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)"
+        ]
+      ]
+    },
+    {
+      "query": "飞书回复被截断，卡片显示不全",
+      "combos": [
+        {
+          "we": 0.0,
+          "wl": 0.0,
+          "top3": [
+            [
+              "feishu-message-size-limits",
+              "frontmatter"
+            ],
+            [
+              "feishu-message-size-limits",
+              "When to Use"
+            ],
+            [
+              "feishu-message-size-limits",
+              "先定位是哪一种「截断」"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "frontmatter",
+              "cos": 0.749878,
+              "entity": 2,
+              "lexical": 1.0,
+              "total": 0.749878
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "When to Use",
+              "cos": 0.739495,
+              "entity": 1,
+              "lexical": 0.833333,
+              "total": 0.739495
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "先定位是哪一种「截断」",
+              "cos": 0.69671,
+              "entity": 1,
+              "lexical": 0.666667,
+              "total": 0.69671
+            }
+          ]
+        },
+        {
+          "we": 0.0,
+          "wl": 0.25,
+          "top3": [
+            [
+              "feishu-message-size-limits",
+              "frontmatter"
+            ],
+            [
+              "feishu-message-size-limits",
+              "When to Use"
+            ],
+            [
+              "feishu-message-size-limits",
+              "先定位是哪一种「截断」"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "frontmatter",
+              "cos": 0.749878,
+              "entity": 2,
+              "lexical": 1.0,
+              "total": 0.999878
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "When to Use",
+              "cos": 0.739495,
+              "entity": 1,
+              "lexical": 0.833333,
+              "total": 0.947828
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "先定位是哪一种「截断」",
+              "cos": 0.69671,
+              "entity": 1,
+              "lexical": 0.666667,
+              "total": 0.863377
+            }
+          ]
+        },
+        {
+          "we": 0.0,
+          "wl": 0.5,
+          "top3": [
+            [
+              "feishu-message-size-limits",
+              "frontmatter"
+            ],
+            [
+              "feishu-message-size-limits",
+              "When to Use"
+            ],
+            [
+              "feishu-message-size-limits",
+              "先定位是哪一种「截断」"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "frontmatter",
+              "cos": 0.749878,
+              "entity": 2,
+              "lexical": 1.0,
+              "total": 1.249878
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "When to Use",
+              "cos": 0.739495,
+              "entity": 1,
+              "lexical": 0.833333,
+              "total": 1.156162
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "先定位是哪一种「截断」",
+              "cos": 0.69671,
+              "entity": 1,
+              "lexical": 0.666667,
+              "total": 1.030043
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.0,
+          "top3": [
+            [
+              "feishu-message-size-limits",
+              "frontmatter"
+            ],
+            [
+              "feishu-message-size-limits",
+              "唯一硬约束：卡片 JSON ≤ 30KB"
+            ],
+            [
+              "feishu-message-size-limits",
+              "When to Use"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "frontmatter",
+              "cos": 0.749878,
+              "entity": 2,
+              "lexical": 1.0,
+              "total": 0.949878
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "唯一硬约束：卡片 JSON ≤ 30KB",
+              "cos": 0.691939,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 0.891939
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "When to Use",
+              "cos": 0.739495,
+              "entity": 1,
+              "lexical": 0.833333,
+              "total": 0.839495
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.25,
+          "top3": [
+            [
+              "feishu-message-size-limits",
+              "frontmatter"
+            ],
+            [
+              "feishu-message-size-limits",
+              "When to Use"
+            ],
+            [
+              "feishu-message-size-limits",
+              "唯一硬约束：卡片 JSON ≤ 30KB"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "frontmatter",
+              "cos": 0.749878,
+              "entity": 2,
+              "lexical": 1.0,
+              "total": 1.199878
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "When to Use",
+              "cos": 0.739495,
+              "entity": 1,
+              "lexical": 0.833333,
+              "total": 1.047828
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "唯一硬约束：卡片 JSON ≤ 30KB",
+              "cos": 0.691939,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 1.016939
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.5,
+          "top3": [
+            [
+              "feishu-message-size-limits",
+              "frontmatter"
+            ],
+            [
+              "feishu-message-size-limits",
+              "When to Use"
+            ],
+            [
+              "feishu-message-size-limits",
+              "唯一硬约束：卡片 JSON ≤ 30KB"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "frontmatter",
+              "cos": 0.749878,
+              "entity": 2,
+              "lexical": 1.0,
+              "total": 1.449878
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "When to Use",
+              "cos": 0.739495,
+              "entity": 1,
+              "lexical": 0.833333,
+              "total": 1.256162
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "唯一硬约束：卡片 JSON ≤ 30KB",
+              "cos": 0.691939,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 1.141939
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.0,
+          "top3": [
+            [
+              "feishu-message-size-limits",
+              "frontmatter"
+            ],
+            [
+              "feishu-message-size-limits",
+              "唯一硬约束：卡片 JSON ≤ 30KB"
+            ],
+            [
+              "feishu-message-size-limits",
+              "When to Use"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "frontmatter",
+              "cos": 0.749878,
+              "entity": 2,
+              "lexical": 1.0,
+              "total": 1.249878
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "唯一硬约束：卡片 JSON ≤ 30KB",
+              "cos": 0.691939,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 1.191939
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "When to Use",
+              "cos": 0.739495,
+              "entity": 1,
+              "lexical": 0.833333,
+              "total": 0.989495
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.25,
+          "top3": [
+            [
+              "feishu-message-size-limits",
+              "frontmatter"
+            ],
+            [
+              "feishu-message-size-limits",
+              "唯一硬约束：卡片 JSON ≤ 30KB"
+            ],
+            [
+              "feishu-message-size-limits",
+              "When to Use"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "frontmatter",
+              "cos": 0.749878,
+              "entity": 2,
+              "lexical": 1.0,
+              "total": 1.499878
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "唯一硬约束：卡片 JSON ≤ 30KB",
+              "cos": 0.691939,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 1.316939
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "When to Use",
+              "cos": 0.739495,
+              "entity": 1,
+              "lexical": 0.833333,
+              "total": 1.197828
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.5,
+          "top3": [
+            [
+              "feishu-message-size-limits",
+              "frontmatter"
+            ],
+            [
+              "feishu-message-size-limits",
+              "唯一硬约束：卡片 JSON ≤ 30KB"
+            ],
+            [
+              "feishu-message-size-limits",
+              "When to Use"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "frontmatter",
+              "cos": 0.749878,
+              "entity": 2,
+              "lexical": 1.0,
+              "total": 1.749878
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "唯一硬约束：卡片 JSON ≤ 30KB",
+              "cos": 0.691939,
+              "entity": 2,
+              "lexical": 0.5,
+              "total": 1.441939
+            },
+            {
+              "skill": "feishu-message-size-limits",
+              "heading": "When to Use",
+              "cos": 0.739495,
+              "entity": 1,
+              "lexical": 0.833333,
+              "total": 1.406162
+            }
+          ]
+        }
+      ],
+      "distinct_top1_chunk": 1,
+      "distinct_top3_chunk": 3,
+      "distinct_top1_skill": 1,
+      "distinct_top3_skill": 1,
+      "top1_changed": false,
+      "top3_changed": false,
+      "base_top3": [
+        [
+          "feishu-message-size-limits",
+          "frontmatter"
+        ],
+        [
+          "feishu-message-size-limits",
+          "When to Use"
+        ],
+        [
+          "feishu-message-size-limits",
+          "唯一硬约束：卡片 JSON ≤ 30KB"
+        ]
+      ]
+    },
+    {
+      "query": "耳机电池不行了，想改成 type-c 充电",
+      "combos": [
+        {
+          "we": 0.0,
+          "wl": 0.0,
+          "top3": [
+            [
+              "usb-reverse-engineering",
+              "Phase 2: Check Connection Layer"
+            ],
+            [
+              "usb-reverse-engineering",
+              "Phase 7.5: Chip-Specific DFU/Boot Mode Entry (part 1/2)"
+            ],
+            [
+              "windows-system-diagnostics",
+              "Monitor 3.5mm Jack Failure Diagnosis (Dead DAC) (part 2/2)"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "usb-reverse-engineering",
+              "heading": "Phase 2: Check Connection Layer",
+              "cos": 0.583258,
+              "entity": 0,
+              "lexical": 0.0,
+              "total": 0.583258
+            },
+            {
+              "skill": "usb-reverse-engineering",
+              "heading": "Phase 7.5: Chip-Specific DFU/Boot Mode Entry (part 1/2)",
+              "cos": 0.545785,
+              "entity": 0,
+              "lexical": 0.0,
+              "total": 0.545785
+            },
+            {
+              "skill": "windows-system-diagnostics",
+              "heading": "Monitor 3.5mm Jack Failure Diagnosis (Dead DAC) (part 2/2)",
+              "cos": 0.543632,
+              "entity": 0,
+              "lexical": 0.0,
+              "total": 0.543632
+            }
+          ]
+        },
+        {
+          "we": 0.0,
+          "wl": 0.25,
+          "top3": [
+            [
+              "personal-budget-and-purchases",
+              "工具/仪器类采购（先项目，后型号）"
+            ],
+            [
+              "retrieval-benchmarking",
+              "多主题 query: 拆实体做并集, 别整句嵌入"
+            ],
+            [
+              "sg2002-licheerv-nano",
+              "进入烧录模式"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "personal-budget-and-purchases",
+              "heading": "工具/仪器类采购（先项目，后型号）",
+              "cos": 0.514449,
+              "entity": 1,
+              "lexical": 0.714286,
+              "total": 0.693021
+            },
+            {
+              "skill": "retrieval-benchmarking",
+              "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+              "cos": 0.449528,
+              "entity": 2,
+              "lexical": 0.571429,
+              "total": 0.592385
+            },
+            {
+              "skill": "sg2002-licheerv-nano",
+              "heading": "进入烧录模式",
+              "cos": 0.520562,
+              "entity": 1,
+              "lexical": 0.285714,
+              "total": 0.591991
+            }
+          ]
+        },
+        {
+          "we": 0.0,
+          "wl": 0.5,
+          "top3": [
+            [
+              "personal-budget-and-purchases",
+              "工具/仪器类采购（先项目，后型号）"
+            ],
+            [
+              "retrieval-benchmarking",
+              "多主题 query: 拆实体做并集, 别整句嵌入"
+            ],
+            [
+              "sg2002-licheerv-nano",
+              "进入烧录模式"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "personal-budget-and-purchases",
+              "heading": "工具/仪器类采购（先项目，后型号）",
+              "cos": 0.514449,
+              "entity": 1,
+              "lexical": 0.714286,
+              "total": 0.871592
+            },
+            {
+              "skill": "retrieval-benchmarking",
+              "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+              "cos": 0.449528,
+              "entity": 2,
+              "lexical": 0.571429,
+              "total": 0.735242
+            },
+            {
+              "skill": "sg2002-licheerv-nano",
+              "heading": "进入烧录模式",
+              "cos": 0.520562,
+              "entity": 1,
+              "lexical": 0.285714,
+              "total": 0.66342
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.0,
+          "top3": [
+            [
+              "retrieval-benchmarking",
+              "多主题 query: 拆实体做并集, 别整句嵌入"
+            ],
+            [
+              "sg2002-licheerv-nano",
+              "进入烧录模式"
+            ],
+            [
+              "personal-budget-and-purchases",
+              "工具/仪器类采购（先项目，后型号）"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "retrieval-benchmarking",
+              "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+              "cos": 0.449528,
+              "entity": 2,
+              "lexical": 0.571429,
+              "total": 0.649528
+            },
+            {
+              "skill": "sg2002-licheerv-nano",
+              "heading": "进入烧录模式",
+              "cos": 0.520562,
+              "entity": 1,
+              "lexical": 0.285714,
+              "total": 0.620562
+            },
+            {
+              "skill": "personal-budget-and-purchases",
+              "heading": "工具/仪器类采购（先项目，后型号）",
+              "cos": 0.514449,
+              "entity": 1,
+              "lexical": 0.714286,
+              "total": 0.614449
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.25,
+          "top3": [
+            [
+              "personal-budget-and-purchases",
+              "工具/仪器类采购（先项目，后型号）"
+            ],
+            [
+              "retrieval-benchmarking",
+              "多主题 query: 拆实体做并集, 别整句嵌入"
+            ],
+            [
+              "sg2002-licheerv-nano",
+              "进入烧录模式"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "personal-budget-and-purchases",
+              "heading": "工具/仪器类采购（先项目，后型号）",
+              "cos": 0.514449,
+              "entity": 1,
+              "lexical": 0.714286,
+              "total": 0.793021
+            },
+            {
+              "skill": "retrieval-benchmarking",
+              "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+              "cos": 0.449528,
+              "entity": 2,
+              "lexical": 0.571429,
+              "total": 0.792385
+            },
+            {
+              "skill": "sg2002-licheerv-nano",
+              "heading": "进入烧录模式",
+              "cos": 0.520562,
+              "entity": 1,
+              "lexical": 0.285714,
+              "total": 0.691991
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.5,
+          "top3": [
+            [
+              "personal-budget-and-purchases",
+              "工具/仪器类采购（先项目，后型号）"
+            ],
+            [
+              "retrieval-benchmarking",
+              "多主题 query: 拆实体做并集, 别整句嵌入"
+            ],
+            [
+              "sg2002-licheerv-nano",
+              "进入烧录模式"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "personal-budget-and-purchases",
+              "heading": "工具/仪器类采购（先项目，后型号）",
+              "cos": 0.514449,
+              "entity": 1,
+              "lexical": 0.714286,
+              "total": 0.971592
+            },
+            {
+              "skill": "retrieval-benchmarking",
+              "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+              "cos": 0.449528,
+              "entity": 2,
+              "lexical": 0.571429,
+              "total": 0.935242
+            },
+            {
+              "skill": "sg2002-licheerv-nano",
+              "heading": "进入烧录模式",
+              "cos": 0.520562,
+              "entity": 1,
+              "lexical": 0.285714,
+              "total": 0.76342
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.0,
+          "top3": [
+            [
+              "retrieval-benchmarking",
+              "多主题 query: 拆实体做并集, 别整句嵌入"
+            ],
+            [
+              "sg2002-licheerv-nano",
+              "进入烧录模式"
+            ],
+            [
+              "personal-budget-and-purchases",
+              "工具/仪器类采购（先项目，后型号）"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "retrieval-benchmarking",
+              "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+              "cos": 0.449528,
+              "entity": 2,
+              "lexical": 0.571429,
+              "total": 0.949528
+            },
+            {
+              "skill": "sg2002-licheerv-nano",
+              "heading": "进入烧录模式",
+              "cos": 0.520562,
+              "entity": 1,
+              "lexical": 0.285714,
+              "total": 0.770562
+            },
+            {
+              "skill": "personal-budget-and-purchases",
+              "heading": "工具/仪器类采购（先项目，后型号）",
+              "cos": 0.514449,
+              "entity": 1,
+              "lexical": 0.714286,
+              "total": 0.764449
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.25,
+          "top3": [
+            [
+              "retrieval-benchmarking",
+              "多主题 query: 拆实体做并集, 别整句嵌入"
+            ],
+            [
+              "personal-budget-and-purchases",
+              "工具/仪器类采购（先项目，后型号）"
+            ],
+            [
+              "sg2002-licheerv-nano",
+              "进入烧录模式"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "retrieval-benchmarking",
+              "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+              "cos": 0.449528,
+              "entity": 2,
+              "lexical": 0.571429,
+              "total": 1.092385
+            },
+            {
+              "skill": "personal-budget-and-purchases",
+              "heading": "工具/仪器类采购（先项目，后型号）",
+              "cos": 0.514449,
+              "entity": 1,
+              "lexical": 0.714286,
+              "total": 0.943021
+            },
+            {
+              "skill": "sg2002-licheerv-nano",
+              "heading": "进入烧录模式",
+              "cos": 0.520562,
+              "entity": 1,
+              "lexical": 0.285714,
+              "total": 0.841991
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.5,
+          "top3": [
+            [
+              "retrieval-benchmarking",
+              "多主题 query: 拆实体做并集, 别整句嵌入"
+            ],
+            [
+              "personal-budget-and-purchases",
+              "工具/仪器类采购（先项目，后型号）"
+            ],
+            [
+              "sg2002-licheerv-nano",
+              "进入烧录模式"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "retrieval-benchmarking",
+              "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+              "cos": 0.449528,
+              "entity": 2,
+              "lexical": 0.571429,
+              "total": 1.235242
+            },
+            {
+              "skill": "personal-budget-and-purchases",
+              "heading": "工具/仪器类采购（先项目，后型号）",
+              "cos": 0.514449,
+              "entity": 1,
+              "lexical": 0.714286,
+              "total": 1.121592
+            },
+            {
+              "skill": "sg2002-licheerv-nano",
+              "heading": "进入烧录模式",
+              "cos": 0.520562,
+              "entity": 1,
+              "lexical": 0.285714,
+              "total": 0.91342
+            }
+          ]
+        }
+      ],
+      "distinct_top1_chunk": 3,
+      "distinct_top3_chunk": 4,
+      "distinct_top1_skill": 3,
+      "distinct_top3_skill": 4,
+      "top1_changed": true,
+      "top3_changed": true,
+      "base_top3": [
+        [
+          "personal-budget-and-purchases",
+          "工具/仪器类采购（先项目，后型号）"
+        ],
+        [
+          "retrieval-benchmarking",
+          "多主题 query: 拆实体做并集, 别整句嵌入"
+        ],
+        [
+          "sg2002-licheerv-nano",
+          "进入烧录模式"
+        ]
+      ]
+    },
+    {
+      "query": "无穷小的阶 泰勒展开怎么算",
+      "combos": [
+        {
+          "we": 0.0,
+          "wl": 0.0,
+          "top3": [
+            [
+              "teaching-concepts-quiz",
+              "出题与判卷的顺序"
+            ],
+            [
+              "causal-graph-iteration",
+              "流程"
+            ],
+            [
+              "teaching-concepts-quiz",
+              "交付物"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "出题与判卷的顺序",
+              "cos": 0.501521,
+              "entity": 0,
+              "lexical": 0.6,
+              "total": 0.501521
+            },
+            {
+              "skill": "causal-graph-iteration",
+              "heading": "流程",
+              "cos": 0.495288,
+              "entity": 0,
+              "lexical": 0.0,
+              "total": 0.495288
+            },
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "交付物",
+              "cos": 0.490649,
+              "entity": 0,
+              "lexical": 0.6,
+              "total": 0.490649
+            }
+          ]
+        },
+        {
+          "we": 0.0,
+          "wl": 0.25,
+          "top3": [
+            [
+              "teaching-concepts-quiz",
+              "出题与判卷的顺序"
+            ],
+            [
+              "teaching-concepts-quiz",
+              "交付物"
+            ],
+            [
+              "teaching-concepts-quiz",
+              "讲解的形状"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "出题与判卷的顺序",
+              "cos": 0.501521,
+              "entity": 0,
+              "lexical": 0.6,
+              "total": 0.651521
+            },
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "交付物",
+              "cos": 0.490649,
+              "entity": 0,
+              "lexical": 0.6,
+              "total": 0.640649
+            },
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "讲解的形状",
+              "cos": 0.47598,
+              "entity": 1,
+              "lexical": 0.4,
+              "total": 0.57598
+            }
+          ]
+        },
+        {
+          "we": 0.0,
+          "wl": 0.5,
+          "top3": [
+            [
+              "teaching-concepts-quiz",
+              "出题与判卷的顺序"
+            ],
+            [
+              "teaching-concepts-quiz",
+              "交付物"
+            ],
+            [
+              "teaching-concepts-quiz",
+              "讲解的形状"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "出题与判卷的顺序",
+              "cos": 0.501521,
+              "entity": 0,
+              "lexical": 0.6,
+              "total": 0.801521
+            },
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "交付物",
+              "cos": 0.490649,
+              "entity": 0,
+              "lexical": 0.6,
+              "total": 0.790649
+            },
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "讲解的形状",
+              "cos": 0.47598,
+              "entity": 1,
+              "lexical": 0.4,
+              "total": 0.67598
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.0,
+          "top3": [
+            [
+              "teaching-concepts-quiz",
+              "讲解的形状"
+            ],
+            [
+              "retrieval-benchmarking",
+              "多主题 query: 拆实体做并集, 别整句嵌入"
+            ],
+            [
+              "teaching-concepts-quiz",
+              "出题与判卷的顺序"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "讲解的形状",
+              "cos": 0.47598,
+              "entity": 1,
+              "lexical": 0.4,
+              "total": 0.57598
+            },
+            {
+              "skill": "retrieval-benchmarking",
+              "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+              "cos": 0.452176,
+              "entity": 1,
+              "lexical": 0.4,
+              "total": 0.552176
+            },
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "出题与判卷的顺序",
+              "cos": 0.501521,
+              "entity": 0,
+              "lexical": 0.6,
+              "total": 0.501521
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.25,
+          "top3": [
+            [
+              "teaching-concepts-quiz",
+              "讲解的形状"
+            ],
+            [
+              "retrieval-benchmarking",
+              "多主题 query: 拆实体做并集, 别整句嵌入"
+            ],
+            [
+              "teaching-concepts-quiz",
+              "出题与判卷的顺序"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "讲解的形状",
+              "cos": 0.47598,
+              "entity": 1,
+              "lexical": 0.4,
+              "total": 0.67598
+            },
+            {
+              "skill": "retrieval-benchmarking",
+              "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+              "cos": 0.452176,
+              "entity": 1,
+              "lexical": 0.4,
+              "total": 0.652176
+            },
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "出题与判卷的顺序",
+              "cos": 0.501521,
+              "entity": 0,
+              "lexical": 0.6,
+              "total": 0.651521
+            }
+          ]
+        },
+        {
+          "we": 0.1,
+          "wl": 0.5,
+          "top3": [
+            [
+              "teaching-concepts-quiz",
+              "出题与判卷的顺序"
+            ],
+            [
+              "teaching-concepts-quiz",
+              "交付物"
+            ],
+            [
+              "teaching-concepts-quiz",
+              "讲解的形状"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "出题与判卷的顺序",
+              "cos": 0.501521,
+              "entity": 0,
+              "lexical": 0.6,
+              "total": 0.801521
+            },
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "交付物",
+              "cos": 0.490649,
+              "entity": 0,
+              "lexical": 0.6,
+              "total": 0.790649
+            },
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "讲解的形状",
+              "cos": 0.47598,
+              "entity": 1,
+              "lexical": 0.4,
+              "total": 0.77598
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.0,
+          "top3": [
+            [
+              "teaching-concepts-quiz",
+              "讲解的形状"
+            ],
+            [
+              "retrieval-benchmarking",
+              "多主题 query: 拆实体做并集, 别整句嵌入"
+            ],
+            [
+              "teaching-concepts-quiz",
+              "出题与判卷的顺序"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "讲解的形状",
+              "cos": 0.47598,
+              "entity": 1,
+              "lexical": 0.4,
+              "total": 0.72598
+            },
+            {
+              "skill": "retrieval-benchmarking",
+              "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+              "cos": 0.452176,
+              "entity": 1,
+              "lexical": 0.4,
+              "total": 0.702176
+            },
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "出题与判卷的顺序",
+              "cos": 0.501521,
+              "entity": 0,
+              "lexical": 0.6,
+              "total": 0.501521
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.25,
+          "top3": [
+            [
+              "teaching-concepts-quiz",
+              "讲解的形状"
+            ],
+            [
+              "retrieval-benchmarking",
+              "多主题 query: 拆实体做并集, 别整句嵌入"
+            ],
+            [
+              "teaching-concepts-quiz",
+              "出题与判卷的顺序"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "讲解的形状",
+              "cos": 0.47598,
+              "entity": 1,
+              "lexical": 0.4,
+              "total": 0.82598
+            },
+            {
+              "skill": "retrieval-benchmarking",
+              "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+              "cos": 0.452176,
+              "entity": 1,
+              "lexical": 0.4,
+              "total": 0.802176
+            },
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "出题与判卷的顺序",
+              "cos": 0.501521,
+              "entity": 0,
+              "lexical": 0.6,
+              "total": 0.651521
+            }
+          ]
+        },
+        {
+          "we": 0.25,
+          "wl": 0.5,
+          "top3": [
+            [
+              "teaching-concepts-quiz",
+              "讲解的形状"
+            ],
+            [
+              "retrieval-benchmarking",
+              "多主题 query: 拆实体做并集, 别整句嵌入"
+            ],
+            [
+              "teaching-concepts-quiz",
+              "出题与判卷的顺序"
+            ]
+          ],
+          "scores": [
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "讲解的形状",
+              "cos": 0.47598,
+              "entity": 1,
+              "lexical": 0.4,
+              "total": 0.92598
+            },
+            {
+              "skill": "retrieval-benchmarking",
+              "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+              "cos": 0.452176,
+              "entity": 1,
+              "lexical": 0.4,
+              "total": 0.902176
+            },
+            {
+              "skill": "teaching-concepts-quiz",
+              "heading": "出题与判卷的顺序",
+              "cos": 0.501521,
+              "entity": 0,
+              "lexical": 0.6,
+              "total": 0.801521
+            }
+          ]
+        }
+      ],
+      "distinct_top1_chunk": 2,
+      "distinct_top3_chunk": 3,
+      "distinct_top1_skill": 1,
+      "distinct_top3_skill": 3,
+      "top1_changed": false,
+      "top3_changed": true,
+      "base_top3": [
+        [
+          "teaching-concepts-quiz",
+          "讲解的形状"
+        ],
+        [
+          "retrieval-benchmarking",
+          "多主题 query: 拆实体做并集, 别整句嵌入"
+        ],
+        [
+          "teaching-concepts-quiz",
+          "出题与判卷的顺序"
+        ]
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+[index] 504/6225 chunks  4.2 chunks/s  elapsed=119.8s
+[index] 1008/6225 chunks  4.3 chunks/s  elapsed=236.7s
+[index] 1512/6225 chunks  3.8 chunks/s  elapsed=402.5s
+[index] 2016/6225 chunks  3.6 chunks/s  elapsed=562.1s
+[index] 2520/6225 chunks  3.5 chunks/s  elapsed=721.2s
+[index] 3024/6225 chunks  3.6 chunks/s  elapsed=847.5s
+[index] 3528/6225 chunks  3.5 chunks/s  elapsed=1009.9s
+[index] 4032/6225 chunks  3.5 chunks/s  elapsed=1144.6s
+[index] 4536/6225 chunks  3.6 chunks/s  elapsed=1246.7s
+[index] 5040/6225 chunks  3.6 chunks/s  elapsed=1384.9s
+[index] 5544/6225 chunks  3.5 chunks/s  elapsed=1566.3s
+[index] 6048/6225 chunks  3.6 chunks/s  elapsed=1677.2s
+[index] 6225/6225 chunks  3.6 chunks/s  elapsed=1715.4s
+Building prefix dict from the default dictionary ...
+Loading model from cache /tmp/jieba.cache
+Loading model cost 0.733 seconds.
+Prefix dict has been built successfully.
+{"files_total": 248, "files_indexed": 248, "files_skipped": 0, "files_removed": 0, "chunks_indexed": 6225, "chunks_total": 6225, "entity_links": 122486, "embedding_model": "bge-m3-Q4_K_M.gguf", "index_version": "p2-corpus-v1", "elapsed_s": 1746.43}

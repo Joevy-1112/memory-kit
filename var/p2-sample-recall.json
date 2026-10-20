@@ -1,0 +1,339 @@
+{
+  "weights": {
+    "entity": 0.1,
+    "lexical": 0.25
+  },
+  "queries": [
+    "V100 上跑 vLLM 显存不够怎么办",
+    "strata 解码速度慢",
+    "飞书回复被截断，卡片显示不全",
+    "耳机电池不行了，想改成 type-c 充电",
+    "无穷小的阶 泰勒展开怎么算"
+  ],
+  "stats": {
+    "db_path": "/home/joe/memory-kit-v2/var/memory-sandbox.db",
+    "root": "/home/joe/.hermes/skills",
+    "files": 248,
+    "chunks": 6225,
+    "frontmatter_chunks": 248,
+    "entities": 13175,
+    "entity_links": 177518,
+    "models": [
+      "bge-m3-Q4_K_M.gguf"
+    ],
+    "index_versions": [
+      "p2-corpus-v1"
+    ],
+    "chunk_types": {
+      "frontmatter": 248,
+      "heading": 5720,
+      "preamble": 257
+    }
+  },
+  "records": [
+    {
+      "query": "V100 上跑 vLLM 显存不够怎么办",
+      "weights": {
+        "entity": 0.1,
+        "lexical": 0.25
+      },
+      "entities": [
+        "v100",
+        "显存",
+        "vllm"
+      ],
+      "tokens": [
+        "v100",
+        "上跑",
+        "vllm",
+        "显存",
+        "不够",
+        "怎么办"
+      ],
+      "candidates": 6225,
+      "results": [
+        {
+          "id": 3700,
+          "source_id": "mlops/local-llm-training/SKILL.md",
+          "skill_name": "local-llm-training",
+          "chunk_no": 9,
+          "chunk_type": "heading",
+          "heading": "坑",
+          "cos": 0.713928,
+          "entity_hits": 2,
+          "lexical_norm": 0.333333,
+          "total": 0.997261,
+          "content": "- 单位换算易错:算显存时别重复除 1024(GB 是 bytes/1024^3,再除就成毫GB 的 0.00 假象)。用 execute_code 一次性算准\n- 记忆里 V100 型号有两种说法(32G SXM2 vs 2×16G)——**以 nvidia-smi 实测为准**,别信记忆。本机实测 2×16G"
+        },
+        {
+          "id": 4033,
+          "source_id": "mlops/v100-llm-inference/SKILL.md",
+          "skill_name": "v100-llm-inference",
+          "chunk_no": 6,
+          "chunk_type": "heading",
+          "heading": "1Cat-vLLM 安装（2026-08-31 实测装通，约 15 分钟） (part 2/2)",
+          "cos": 0.690071,
+          "entity_hits": 2,
+          "lexical_norm": 0.333333,
+          "total": 0.973405,
+          "content": "- wheel 已打包 `flash_attn_v100`（SM70 Flash Attention）+ SM70 CUDA 扩展，**无需源码编译**\n- 依赖 92 个：torch 2.10.0+cu128 + transformers 5.x + flashinfer 0.6.6 + triton 3.6 + 几十个 nvidia-* 包，装完 venv ~10G、181 包\n- 版本获取：`https://api.github.com/repos/1CatAI/1Cat-vLLM/releases/latest`（GitHub API 国内可通）"
+        },
+        {
+          "id": 3444,
+          "source_id": "mlops/h3-video-generation/SKILL.md",
+          "skill_name": "h3-video-generation",
+          "chunk_no": 34,
+          "chunk_type": "heading",
+          "heading": "⚠️ 双卡 32G 下 I2V 依然 OOM — 瓶颈从显存变内存(2026-08-14 实测) (part 3/4)",
+          "cos": 0.646895,
+          "entity_hits": 2,
+          "lexical_norm": 0.5,
+          "total": 0.971895,
+          "content": "- **⚠️ Raylight FSDP 在 V100 16G×2 五轮全 OOM, 物理限制定论(08-16 02:00, 别再试)**: Raylight(torch 2.8.0+cu126 + nccl 2.28.9 + FSDP + Ulysses=2 + TORCH_EFFICIENT)在 V100 16G×2 五配置全崩: ①FSDP 无 offload → int8_mm OOM(权重 14G 驻留) ②FSDP_CPU_OFFLOAD=true → 内存 OOM(34G 权重 > 31G) ③编码器跨卡(H3MultiGPUCLIPLoader gpu_ids=0,1)→ **ImageToVideo 编码阶段 OOM**(编码器 7.3G + DiT 分片 9.75G = 17G > 16G) ④编码器 CPU(普通 CLIPLoader device=cpu)→ 过编码但 **NCCL all_to_all OOM**(Ulysses 通信峰值) ⑤**PipelinedUlysses 补丁应用后(2080ti source-overlay 直接覆盖 src/raylight/, 比 git apply 稳)解决 all_to_all → 死在 int8 反量化 chunk.float()**, 再应用 comfy-kitchen-cu128-eager-int8-memory.patch(预分配 scaled_result + copy_ 替代 torch.cat, 手动 patch site-packages/comfy_kitchen/backends/eager/quantization.py)仍 OOM。**推导: FSDP 分片固定 9.75G/卡, 剩 6.25G 余量装不下 124帧 640p 激活 + int8 float32 中间态 = 16G 卡物理不够; 22G 卡(余量 12.25G)是实测门槛(用户质疑过\"32G 总显存够\"——总显存确实够, 卡的是单卡余量, 推导链要讲清)**。**切片+offload 死因(08-17 01:05 Joe 推导确认)**: 切片(每卡 10.5G)+ 激活 offload 内存数学上成立(31G 够), 但**工具链没有\\\"激活 offload\\\"模式**——Raylight FSDP 只有权重 CPU offload(34G > 31G 内存爆)和无 offload(显存爆)两种; 激活 offload(中间张量换内存)是 DeepSpeed ZeRO-Infinity 级调度特性, ComfyUI/Raylight 生态没实现。**死因 = 工具缺失, 不是硬件数学死**(这也解释 2080ti 4×22G 为什么行: 22G 卡激活不用 offload, 余量够)。环"
+        }
+      ]
+    },
+    {
+      "query": "strata 解码速度慢",
+      "weights": {
+        "entity": 0.1,
+        "lexical": 0.25
+      },
+      "entities": [
+        "解码",
+        "strata"
+      ],
+      "tokens": [
+        "strata",
+        "解码",
+        "速度",
+        "速度慢"
+      ],
+      "candidates": 6225,
+      "results": [
+        {
+          "id": 3678,
+          "source_id": "mlops/local-gguf-serving/SKILL.md",
+          "skill_name": "local-gguf-serving",
+          "chunk_no": 22,
+          "chunk_type": "heading",
+          "heading": "Flash-Next(UQ-IQ1_S) + MTP 头投机解码 —— 2026-09-29 双 V100 实测 (+15%~+39%) (part 1/3)",
+          "cos": 0.539059,
+          "entity_hits": 1,
+          "lexical_norm": 0.75,
+          "total": 0.826559,
+          "content": "72.5GB 的 Qwen3.8-Flash-Next(UD-IQ1_S, qwen4exp 架构)挂 **MTP 头**做投机解码, 实测:\n同切分/同 prompt 交替 4 臂(A/B/A/B), 8K ctx, q8_0 KV, temp=0:\n\n| case | 无 MTP | 有 MTP | 提升 | 接受率 |\n|---|---|---|---|---|\n| short(286 tok 结构化列表) | 21.02 t/s | 24.27 t/s | **+15.5%** | 0.599 |\n| longctx(537 tok→200 tok 摘要) | 20.59 t/s | 28.71 t/s | **+39.4%** | 0.820 |\n\n→ **收益全看接受率**(高可预测文本：摘要/翻译/结构化吃得多); 8K 下 prefill 无明显掉点。\n⚠️ **接受率是\"内容函数\", 不是\"配置函数\"——别把它当体检指标**: 同机同配置实测, 结构化逐步推理 **82%** vs 中文散文 **59%**;\nthinking 开 vs 关几乎无差(**81% vs 82%**)。**跨机器/跨量化比 decode 前必须先归一到裸速度**:\n每步期望接受 token ≈ `p + p² + p³ + p⁴`(`--spec 4`, p = 逐 token 接受率, 理想上界) ⇒ 裸速度 = 顶层 decode ÷ 该值。\n实例: 对方 98%→107 t/s ⇒ 裸 ≈27.6, 本机 82%→76 t/s ⇒ 裸 ≈30.6 —— **顶层数字更低的反而裸速度更好**(对方还限了 150W、\n跑更重的量化)。看到\"接受率偏低\"先问是什么文本, 别去改配置; 调参只有 `--spec-min-p` / `--spec N` 两个旋钮,\n且必须走官方 calibrate 的交叉重测(细节见 `references/strata-engine-v100.md` 的 MTP 节)。\n**铁律(全踩过)**:\n1. **必须 unsloth 的构建, mainline 的 `--spec-type draft-mtp` 不认这些头**: mainline b10775 喂 shared 头报\n   `tensor 'token_embd.weight' not found`(不借用), 喂自含头报 `output_hc_norm.weight not found`。"
+        },
+        {
+          "id": 3681,
+          "source_id": "mlops/local-gguf-serving/SKILL.md",
+          "skill_name": "local-gguf-serving",
+          "chunk_no": 25,
+          "chunk_type": "heading",
+          "heading": "报 decode 速度的规矩(每次用户问“多快”都适用)",
+          "cos": 0.599527,
+          "entity_hits": 1,
+          "lexical_norm": 0.5,
+          "total": 0.824527,
+          "content": "1. **给两组数**: 同题热缓存上限 + 跨领域混跑日常值。同一 prompt 连打会因专家缓存全中而虚高(实测同题 76 vs 跨领域 49–94、长生成 56–62), 只报高的那个等于自欺。\n2. **数字要归属到配置**: 引擎日志里 130+/80–96 tok/s 的记录可能全来自另一个会话、另一份 NVLink/量化配置 —— 先按 `engine started` 行分组再比, 否则会把 workload 差异当成“今天变慢了”。\n3. **客户端打 Strata/思考型模型的三个必踩点**: `chat_template_kwargs:{enable_thinking:false}`(否则 content 全空, 只有 reasoning_content)、token 数取 `stream_options:{include_usage:true}` 的 `usage.completion_tokens`(数 chunk 会得 0)、先 `ps` 确认只有一个测速进程(两个并发会把结果腰斩)。\n4. **慢的时候先判层**: 生成中采 `power.draw/utilization.gpu/utilization.memory`; SM 50% 而显存带宽 15% 且专家命中 98% = 等串行延迟, 该动 `--spec`/`--batch` 而不是加缓存。\n\n完整口径/日志字段/判层表: `references/spec-decode-speed-measurement.md`(后半部分是 Strata/8080 专用)。"
+        },
+        {
+          "id": 3674,
+          "source_id": "mlops/local-gguf-serving/SKILL.md",
+          "skill_name": "local-gguf-serving",
+          "chunk_no": 18,
+          "chunk_type": "heading",
+          "heading": "DFlash2 投机解码(27B 加速, 2026-08-19 尝试, 待上游转换修复)",
+          "cos": 0.602583,
+          "entity_hits": 1,
+          "lexical_norm": 0.25,
+          "total": 0.765083,
+          "content": "DFlash2 = 投机解码框架(block-diffusion drafter: 小草稿模型并行猜 token 块 → 目标模型一次验证)。Qwen3.8-27B 官方数据 2.7-3.4×(batch=1)。\n\n```bash\n# llama.cpp 需含 PR #27342(2026-08-11 编译的没有 --spec-type draft-dflash, 必须 git pull + 重编译)\nllama-server -m Qwen3.8-27B-IQ4_XS.gguf \\\n  --spec-type draft-dflash -md Qwen3.8-27B-DFlash2-Q4_K_M.gguf \\\n  --spec-draft-n-max 4 -ngl 99 --port 8086 ...\n```\n- 草稿模型: `z-lab/Qwen3.8-27B-DFlash2-GGUF`(或 incoai 镜像, 同文件 1.14GB, Q4_K_M)\n- **n-max=4 是 V100/3090 甜点**(官方默认 7, 实测 7 反而更慢)\n- ⚠️ 2026-08-19 卡点: z-lab/incoai 的草稿 GGUF 转换是旧版(58 tensor), 上游加载器期望 81 →\n  `done_getting_tensors: wrong number of tensors; expected 81, got 58` 加载失败(z-lab 与 incoai 仓库文件相同,\n  llama-gguf 工具也崩)——不是配置错, 是转换没跟上 PR——**等上游重新转换再试**; 多并发场景官方称有退化(单用户 OK)\n- 教训: 投机解码类加速先验证草稿 GGUF 与 llama.cpp 版本契约(tensor 数), 再花时间配参数\n- **ngram 投机解码白试(2026-08-19 实测)**: `--spec-type ngram-simple` 27B 仅 33.2 vs 32.3 tok/s(≈持平,\n  草稿质量低接受率上不去)——投机解码要 DFlash2 级才值得, ngram 不用折腾"
+        }
+      ]
+    },
+    {
+      "query": "飞书回复被截断，卡片显示不全",
+      "weights": {
+        "entity": 0.1,
+        "lexical": 0.25
+      },
+      "entities": [
+        "卡片",
+        "飞书"
+      ],
+      "tokens": [
+        "飞书",
+        "回复",
+        "截断",
+        "卡片",
+        "显示",
+        "不全"
+      ],
+      "candidates": 6225,
+      "results": [
+        {
+          "id": 2525,
+          "source_id": "feishu-message-size-limits/SKILL.md",
+          "skill_name": "feishu-message-size-limits",
+          "chunk_no": 0,
+          "chunk_type": "frontmatter",
+          "heading": "frontmatter",
+          "cos": 0.749878,
+          "entity_hits": 2,
+          "lexical_norm": 1.0,
+          "total": 1.199878,
+          "content": "name: feishu-message-size-limits\ndescription: 飞书回复被截断/卡片显示不全/要发长文时用: 卡片 30KB 硬限、静默丢内容、分段策略与验收"
+        },
+        {
+          "id": 2527,
+          "source_id": "feishu-message-size-limits/SKILL.md",
+          "skill_name": "feishu-message-size-limits",
+          "chunk_no": 2,
+          "chunk_type": "heading",
+          "heading": "When to Use",
+          "cos": 0.739495,
+          "entity_hits": 1,
+          "lexical_norm": 0.833333,
+          "total": 1.047828,
+          "content": "- 飞书机器人（dsh / 自建 bot）或 Hermes 网关的回复「被截断」「显示不全」「后面没了」\n- 要向飞书发长文、大代码块、长报告，担心发不全\n- 改完分段参数要验收\n\n触发词：截断、显示不全、发不出来、后面没了。"
+        },
+        {
+          "id": 2528,
+          "source_id": "feishu-message-size-limits/SKILL.md",
+          "skill_name": "feishu-message-size-limits",
+          "chunk_no": 3,
+          "chunk_type": "heading",
+          "heading": "唯一硬约束：卡片 JSON ≤ 30KB",
+          "cos": 0.691939,
+          "entity_hits": 2,
+          "lexical_norm": 0.5,
+          "total": 1.016939,
+          "content": "飞书交互卡片是 **JSON，整卡上限 30KB**。超限的部分**不会报错、不进日志、点开也看不到** —— 服务端静默丢弃。\n\n长度换算先记住这一条：**CJK 1 字符 = 3 字节**，所以\n\n| 内容 | 字符数 | 原始字节 | 加卡片结构与 JSON 转义后 |\n|---|---|---|---|\n| 纯中文 | 8000 | ≈24KB | **破 30KB → 静默截断** |\n| 纯中文 | 4000 | ≈12KB | ≈15KB，安全 |\n| 纯 ASCII | 8000 | ≈8KB | 安全，可再放大 |\n\n推算规则：**中文按 4000 字符/段、英文按 8000–12000 字符/段**；单段目标 ≈12KB，留一半余量给卡片结构、换行与引号转义。"
+        }
+      ]
+    },
+    {
+      "query": "耳机电池不行了，想改成 type-c 充电",
+      "weights": {
+        "entity": 0.1,
+        "lexical": 0.25
+      },
+      "entities": [
+        "耳机",
+        "电池",
+        "type-c"
+      ],
+      "tokens": [
+        "耳机",
+        "电池",
+        "不行",
+        "改成",
+        "type-c",
+        "type",
+        "充电"
+      ],
+      "candidates": 6225,
+      "results": [
+        {
+          "id": 4367,
+          "source_id": "productivity/personal-budget-and-purchases/SKILL.md",
+          "skill_name": "personal-budget-and-purchases",
+          "chunk_no": 7,
+          "chunk_type": "heading",
+          "heading": "工具/仪器类采购（先项目，后型号）",
+          "cos": 0.514449,
+          "entity_hits": 1,
+          "lexical_norm": 0.714286,
+          "total": 0.793021,
+          "content": "1. **先问\"为哪个项目买、这一步用不用得上\"，再谈型号** ✓ 他贴商品截图时先做用途对齐，不要直接比参数。本会话实例：两台焊台都是\"风枪+吸锡泵\"二合一/三合一，而当前要做的活（舵机线、RP2040 排针、改充电口）**全是烙铁活**，风枪一次用不上 ⇒ 同预算改推「T12 烙铁 + 万用表 + 耗材」，万用表还是验收 5.1kΩ 电阻的必需件。省钱的正当理由是\"这一步用不上\"，不是\"便宜点\"。\n2. **副产物不驱动采购** ✓ 一次性小任务（给老耳机改 Type-C 口）需要焊接 ≠ 该买焊台；正确顺序是「主项目立项 → 买整套 → 副产物当练习题」。别让一个配件需求把装备预算提前吃掉。\n3. **补贴价先判断是常驻还是限时** ✓ \"百亿补贴\"多为常驻价，不是限时秒杀；叠加日大促还有第二层券。判据不清就明说\"这是常驻价，不必抢\"，别用\"马上卖完/854 人收藏\"这类页面话术催他下单。\n4. **能修的别换** ✓ 六年老设备（如 XM2）电池衰减是寿命不是报废：先查零件型号（电池 `SP73` / 零件号 `4-296-914-01`）与寄修价，再和二手换机价对比（同型号二手 600–1000 ≠ 一块电池几十块）。检查鼓包锂电 = 安全项，优先于省钱项。"
+        },
+        {
+          "id": 3172,
+          "source_id": "ml/retrieval-benchmarking/SKILL.md",
+          "skill_name": "retrieval-benchmarking",
+          "chunk_no": 3,
+          "chunk_type": "heading",
+          "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+          "cos": 0.449528,
+          "entity_hits": 2,
+          "lexical_norm": 0.571429,
+          "total": 0.792385,
+          "content": "一条 query 同时含多个主题(工具名 + 概念 + 设备 + 动作)时, 整句 embedding 会被平均成\"语义中间地带\", top-k 全是似是而非的东西。**按实体拆开、各自检索、并集重排**明显更准: 同一批 8 条真实 query、243 条技能索引, 整句 top5 命中应召回项 6/14, 实体并集 9/14。典型差别: 「耳机电池改 type-c」整句全错、实体并集命中硬件技能; 「strata 解码慢」整句认成网络诊断、实体并集命中本地推理技能。\n- 打分: 每实体检索一次 → `score[doc] = max(cos) + 0.02 × 命中实体数` → 取 top-k(并集天然带来多样性, 不要只用单条最高分)。\n- **索引文本必须含正文主题词**, 只写 description 一定漏: 描述写成\"用户要我教他\"的技能, 永远不会被\"泰勒展开\"这类正文术语召回。按 `##`/`###` 标题切块, 每块前缀技能名。\n- 实体抽取的噪声是主要失败源: 拿技能/文件名按下划线切分会吐出 `gen`/`web`/`agent` 这类碎片。用受控词表或小模型抽实体, 不要直接切标识符。\n- 复用 memory-kit 的 `entity_links(entity, memory_id, memory_key, weight)` 改挂 skill chunk 即可; 同一套坑要一起修: 大小写未归一(`Hermes`/`hermes` 算两个实体)、长尾单例(5.3k 实体对 2k 条记忆, 平均 1.8 条/实体)、正则误捞(`assistant`/`home`/`user`)。"
+        },
+        {
+          "id": 2446,
+          "source_id": "embedded-ai/sg2002-licheerv-nano/SKILL.md",
+          "skill_name": "sg2002-licheerv-nano",
+          "chunk_no": 10,
+          "chunk_type": "heading",
+          "heading": "进入烧录模式",
+          "cos": 0.520562,
+          "entity_hits": 1,
+          "lexical_norm": 0.285714,
+          "total": 0.691991,
+          "content": "1. **按住 USR/BOOT 键**（不是 RST）\n2. 插 USB Type-C（OTG 口）\n3. Windows 需要装 Cvitek USB 驱动"
+        }
+      ]
+    },
+    {
+      "query": "无穷小的阶 泰勒展开怎么算",
+      "weights": {
+        "entity": 0.1,
+        "lexical": 0.25
+      },
+      "entities": [
+        "泰勒"
+      ],
+      "tokens": [
+        "无穷",
+        "无穷小",
+        "的阶",
+        "泰勒",
+        "展开"
+      ],
+      "candidates": 6225,
+      "results": [
+        {
+          "id": 5949,
+          "source_id": "teaching-concepts-quiz/SKILL.md",
+          "skill_name": "teaching-concepts-quiz",
+          "chunk_no": 2,
+          "chunk_type": "heading",
+          "heading": "讲解的形状",
+          "cos": 0.47598,
+          "entity_hits": 1,
+          "lexical_norm": 0.4,
+          "total": 0.67598,
+          "content": "1. **机制优先，结论靠后**：每个知识点给\"为什么这样设计\"（补码 = 让加减法共用一套电路；浮点误差 = 十进制小数在二进制里是无限循环；乱码 = 同一码点两种编码字节数不同）。他明确反感只给结论。\n2. **可推导的不背**：十六进制是二进制的 4 位分组、'a' 比 'A' 大 32 是 bit5、ASCII 数字减 48——给推导路径，不给记忆项。\n3. **用代码算，不心算**：涉及进制、补码、浮点、编码字节数一律跑 Python 算（`struct.pack`、`format`、`encode`），把结果当证据。他会问\"你测试过了吗\"。\n4. **他被工具名吓到时先归约，别顺势加码**：冒出\"还得用这玩意啊\"\"这么麻烦\"时，第一句必须把它接回他已经会的东西（\"泰勒不是新东西，就是你背的那张等价表多写两项\"），并给出\"什么时候才真的需要它\"的触发条件（90% 的题用等价就够，只有首项抵消才展开）。**不要跟着强调它难、更不要承认\"确实难\"** —— 那会让他把\"难\"当成放弃的理由。\n5. **长度**：分节短条目，不铺陈。他说\"够了\"就立刻收尾只给一句结论。"
+        },
+        {
+          "id": 3172,
+          "source_id": "ml/retrieval-benchmarking/SKILL.md",
+          "skill_name": "retrieval-benchmarking",
+          "chunk_no": 3,
+          "chunk_type": "heading",
+          "heading": "多主题 query: 拆实体做并集, 别整句嵌入",
+          "cos": 0.452176,
+          "entity_hits": 1,
+          "lexical_norm": 0.4,
+          "total": 0.652176,
+          "content": "一条 query 同时含多个主题(工具名 + 概念 + 设备 + 动作)时, 整句 embedding 会被平均成\"语义中间地带\", top-k 全是似是而非的东西。**按实体拆开、各自检索、并集重排**明显更准: 同一批 8 条真实 query、243 条技能索引, 整句 top5 命中应召回项 6/14, 实体并集 9/14。典型差别: 「耳机电池改 type-c」整句全错、实体并集命中硬件技能; 「strata 解码慢」整句认成网络诊断、实体并集命中本地推理技能。\n- 打分: 每实体检索一次 → `score[doc] = max(cos) + 0.02 × 命中实体数` → 取 top-k(并集天然带来多样性, 不要只用单条最高分)。\n- **索引文本必须含正文主题词**, 只写 description 一定漏: 描述写成\"用户要我教他\"的技能, 永远不会被\"泰勒展开\"这类正文术语召回。按 `##`/`###` 标题切块, 每块前缀技能名。\n- 实体抽取的噪声是主要失败源: 拿技能/文件名按下划线切分会吐出 `gen`/`web`/`agent` 这类碎片。用受控词表或小模型抽实体, 不要直接切标识符。\n- 复用 memory-kit 的 `entity_links(entity, memory_id, memory_key, weight)` 改挂 skill chunk 即可; 同一套坑要一起修: 大小写未归一(`Hermes`/`hermes` 算两个实体)、长尾单例(5.3k 实体对 2k 条记忆, 平均 1.8 条/实体)、正则误捞(`assistant`/`home`/`user`)。"
+        },
+        {
+          "id": 5950,
+          "source_id": "teaching-concepts-quiz/SKILL.md",
+          "skill_name": "teaching-concepts-quiz",
+          "chunk_no": 3,
+          "chunk_type": "heading",
+          "heading": "出题与判卷的顺序",
+          "cos": 0.501521,
+          "entity_hits": 0,
+          "lexical_norm": 0.6,
+          "total": 0.651521,
+          "content": "- 出题时**先只给题，答案另附**（或等他答）——题和答案同一段发出去等于没出题。\n- **出题前先确认他到哪一章**：超出进度的题（刚学无穷小就问“几阶”，那属于后面的“无穷小的比较”）不算错，直接标注“这属于第 X 节，先跳过”，不要往错题本里塞。\n- **不许拿没讲过的术语出题**：出题前自查“这道题里每个词，我这轮讲过吗”。用未定义的概念提问（还没讲“几阶”就问“是几阶”）只会收到“高阶”这种半对答案，然后被他当场戳穿“你没教”。真发生了：先明确认错（是我没讲就拿来考），再补定义（含口径：这个量相对哪个基准、哪个过程定义），把同一题重问一遍——**不要直接判错收场**，否则他记住的是“被扣分”而不是那个定义。\n- **阶/次数这类量必须先绑过程**：同一句话在 x→0 与 x→∞ 下答案相反，题干没写过程就自己补上并声明，别让他靠猜。\n- 他答得极简（一行几个词、不分题号）时，**先复述你读到的答案再判**：写成“我把①读作 A、②读作 B，对吗”让他有机会纠正。直接判错容易把笔误当成概念错，浪费一轮。\n- 判卷前**自己先算一遍**再逐条对；对错的都要说，不要只说\"全对\"。\n- **用 sympy 兜底，别凭手感判**：极限/阶数/等价类题目先跑代码复算——`sp.limit(f/x**k, x, 0)` 扫 k=1..8，第一个非零有限比值给出阶数，`sp.series(f, x, 0, 7)` 看首个非零项。算完把结果贴进判卷里当证据（他会问\"你测试过了吗\"）。\n- **错题按断点归类，不按题号归类**：同一节连错几道时，把错误归到少数几类机制（过程/方向没看、漏掉一个因子、变元没替换、减法首项抵消没展开），每类给一句判别语。归错类会让他以为自己在反复犯同一个错；归对了会当场被他自己接过去（他会主动说出\"趋向方向没看\"这种自诊断）——那是这一节真正学会的信号。\n- 他没答完的题，补答案时说明\"这题你没答\"，不要当成他答错了。"
+        }
+      ]
+    }
+  ]
+}

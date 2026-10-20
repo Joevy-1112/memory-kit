@@ -1,0 +1,23 @@
+Building prefix dict from the default dictionary ...
+Loading model from cache /tmp/jieba.cache
+Loading model cost 0.715 seconds.
+Prefix dict has been built successfully.
+
+V100 上跑 vLLM 显存不够怎么办
+  v100-llm-inference: ranks=[2]
+  serving-llms-vllm: ranks=not in top10
+
+strata 解码速度慢
+  local-gguf-serving: ranks=[1, 2, 3, 6, 7]
+
+飞书回复被截断，卡片显示不全
+  feishu-message-size-limits: ranks=[1, 2, 3, 4, 7, 9, 10]
+
+耳机电池不行了，想改成 type-c 充电
+  windows-peripherals: ranks=not in top10
+  windows-system-diagnostics: ranks=[8]
+
+无穷小的阶 泰勒展开怎么算
+  teaching-concepts-quiz: ranks=[1, 3, 4]
+
+# wrote /home/joe/memory-kit-v2/var/p2-expected-ranks.json

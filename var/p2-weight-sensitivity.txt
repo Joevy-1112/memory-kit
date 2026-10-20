@@ -1,0 +1,46 @@
+Building prefix dict from the default dictionary ...
+Loading model from cache /tmp/jieba.cache
+Loading model cost 0.722 seconds.
+Prefix dict has been built successfully.
+
+### V100 上跑 vLLM 显存不够怎么办
+| w_e \ w_l | 0.00 | 0.25 | 0.50 |
+|---|---|---|---|
+| 0.00 | local-llm-training > v100-llm-inference > headless-gpu-bringup | local-llm-training > v100-llm-inference > h3-video-generation | pc-build-planning > h3-video-generation > local-llm-training |
+| 0.10 | local-llm-training > v100-llm-inference > headless-gpu-bringup | local-llm-training > v100-llm-inference > h3-video-generation | h3-video-generation > local-llm-training > h3-video-generation |
+| 0.25 | local-llm-training > v100-llm-inference > headless-gpu-bringup | local-llm-training > v100-llm-inference > h3-video-generation | h3-video-generation > local-llm-training > h3-video-generation |
+- distinct top1 skill=3 top3 skill=4 top1 chunk=3 top3 chunk=4
+
+### strata 解码速度慢
+| w_e \ w_l | 0.00 | 0.25 | 0.50 |
+|---|---|---|---|
+| 0.00 | windows-computer-use > local-gguf-serving > gpu-perf-benchmarking | local-gguf-serving×3 | local-gguf-serving×3 |
+| 0.10 | local-gguf-serving > gpu-perf-benchmarking > local-gguf-serving | local-gguf-serving×3 | local-gguf-serving×2 > local-image-generation |
+| 0.25 | local-gguf-serving > gpu-perf-benchmarking > local-gguf-serving | local-gguf-serving×3 | local-gguf-serving×2 > local-image-generation |
+- distinct top1 skill=2 top3 skill=4 top1 chunk=3 top3 chunk=5
+
+### 飞书回复被截断，卡片显示不全
+| w_e \ w_l | 0.00 | 0.25 | 0.50 |
+|---|---|---|---|
+| 0.00 | feishu-message-size-limits×3 | feishu-message-size-limits×3 | feishu-message-size-limits×3 |
+| 0.10 | feishu-message-size-limits×3 | feishu-message-size-limits×3 | feishu-message-size-limits×3 |
+| 0.25 | feishu-message-size-limits×3 | feishu-message-size-limits×3 | feishu-message-size-limits×3 |
+- distinct top1 skill=1 top3 skill=1 top1 chunk=1 top3 chunk=3
+
+### 耳机电池不行了，想改成 type-c 充电
+| w_e \ w_l | 0.00 | 0.25 | 0.50 |
+|---|---|---|---|
+| 0.00 | usb-reverse-engineering×2 > windows-system-diagnostics | personal-budget-and-purchases > retrieval-benchmarking > sg2002-licheerv-nano | personal-budget-and-purchases > retrieval-benchmarking > sg2002-licheerv-nano |
+| 0.10 | retrieval-benchmarking > sg2002-licheerv-nano > personal-budget-and-purchases | personal-budget-and-purchases > retrieval-benchmarking > sg2002-licheerv-nano | personal-budget-and-purchases > retrieval-benchmarking > sg2002-licheerv-nano |
+| 0.25 | retrieval-benchmarking > sg2002-licheerv-nano > personal-budget-and-purchases | retrieval-benchmarking > personal-budget-and-purchases > sg2002-licheerv-nano | retrieval-benchmarking > personal-budget-and-purchases > sg2002-licheerv-nano |
+- distinct top1 skill=3 top3 skill=4 top1 chunk=3 top3 chunk=4
+
+### 无穷小的阶 泰勒展开怎么算
+| w_e \ w_l | 0.00 | 0.25 | 0.50 |
+|---|---|---|---|
+| 0.00 | teaching-concepts-quiz > causal-graph-iteration > teaching-concepts-quiz | teaching-concepts-quiz×3 | teaching-concepts-quiz×3 |
+| 0.10 | teaching-concepts-quiz > retrieval-benchmarking > teaching-concepts-quiz | teaching-concepts-quiz > retrieval-benchmarking > teaching-concepts-quiz | teaching-concepts-quiz×3 |
+| 0.25 | teaching-concepts-quiz > retrieval-benchmarking > teaching-concepts-quiz | teaching-concepts-quiz > retrieval-benchmarking > teaching-concepts-quiz | teaching-concepts-quiz > retrieval-benchmarking > teaching-concepts-quiz |
+- distinct top1 skill=1 top3 skill=3 top1 chunk=2 top3 chunk=3
+
+# wrote /home/joe/memory-kit-v2/var/p2-weight-sensitivity.json

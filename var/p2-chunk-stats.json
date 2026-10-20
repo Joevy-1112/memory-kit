@@ -1,0 +1,92 @@
+{
+  "root": "/home/joe/.hermes/skills",
+  "files": 248,
+  "chunks": 6225,
+  "chunk_types": {
+    "frontmatter": 248,
+    "preamble": 257,
+    "heading": 5720
+  },
+  "chars_mean": 495.26,
+  "chars_median": 413,
+  "chars_p95": 1151,
+  "chars_max": 1200,
+  "over_limit": [],
+  "top_skills_by_chunks": [
+    {
+      "skill": "memory-db",
+      "path": "software-development/memory-db/SKILL.md",
+      "chunks": 159
+    },
+    {
+      "skill": "research-paper-writing",
+      "path": "research/research-paper-writing/SKILL.md",
+      "chunks": 152
+    },
+    {
+      "skill": "windows-system-diagnostics",
+      "path": "devops/windows-system-diagnostics/SKILL.md",
+      "chunks": 149
+    },
+    {
+      "skill": "self-healing-infrastructure",
+      "path": "devops/self-healing-infrastructure/SKILL.md",
+      "chunks": 128
+    },
+    {
+      "skill": "memory-system-ops",
+      "path": "software-development/memory-system-ops/SKILL.md",
+      "chunks": 117
+    },
+    {
+      "skill": "hermes-agent",
+      "path": "autonomous-ai-agents/hermes-agent/SKILL.md",
+      "chunks": 99
+    },
+    {
+      "skill": "llama-cpp",
+      "path": "mlops/inference/llama-cpp/SKILL.md",
+      "chunks": 99
+    },
+    {
+      "skill": "sg2002-licheerv-nano",
+      "path": "embedded-ai/sg2002-licheerv-nano/SKILL.md",
+      "chunks": 89
+    },
+    {
+      "skill": "windows-computer-use",
+      "path": "windows-computer-use/SKILL.md",
+      "chunks": 89
+    },
+    {
+      "skill": "hermes-memory-db-ops",
+      "path": "devops/hermes-memory-db-ops/SKILL.md",
+      "chunks": 86
+    },
+    {
+      "skill": "h3-video-generation",
+      "path": "mlops/h3-video-generation/SKILL.md",
+      "chunks": 83
+    },
+    {
+      "skill": "claude-code",
+      "path": "autonomous-ai-agents/claude-code/SKILL.md",
+      "chunks": 75
+    },
+    {
+      "skill": "agent-thinking-patterns",
+      "path": "software-development/agent-thinking-patterns/SKILL.md",
+      "chunks": 73
+    },
+    {
+      "skill": "hermes-config-management",
+      "path": "devops/hermes-config-management/SKILL.md",
+      "chunks": 72
+    },
+    {
+      "skill": "wechat-gateway",
+      "path": "messaging/wechat-gateway/SKILL.md",
+      "chunks": 72
+    }
+  ]
+}
