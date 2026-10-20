@@ -10,9 +10,9 @@
 
 | 路径 | 是什么 | git | 版本 | 状态 |
 |---|---|---|---|---|
-| `/home/joe/memory-kit` | **memorykit 库**（Python，AGPL） | `ebe67fa` | 10-16 | ⚠️ **落后**：3 个未提交改动；被生产 overlay 依赖 |
+| `/home/joe/memory-kit` | **memorykit 库（生产依赖这个）** | `ebe67fa` + 工作区 | 10-20 | ✅ **代码已升级**：6 个 memorykit/*.py 从 v2 复制（git HEAD 未动，工作区 dirty） |
 | `/home/joe/memory-kit-v2` | memorykit 沙箱（今天 P0-P4 都在这） | `e07d116` | 10-20 | 领先生产 **943 行**（仅 lifecycle.py） |
-| `/home/joe/memorykit-overlay` | **overlay 生产部署目录** | 非 git | 10-19 | ⚠️ **未修补版**：8 个 MCP 工具、错误吞成空结果、归属失败裸 except |
+| `/home/joe/memorykit-overlay` | **overlay 生产部署目录** | 非 git | 10-20 | ✅ **已升级**：15 个 MCP 工具、解释器自检、错误不再吞 |
 
 两个 memory-kit 是**同一个 git remote**（`Joevy-1112/memory-kit`），但不共享工作树。
 
@@ -40,12 +40,12 @@
 
 | 库 | 大小 | memories | merge_events 表 | 用途 |
 |---|---|---|---|---|
-| `~/.hermes/memory.db` | 118M | 2,141 | ❌ **无** | **生产**（Hermes + dsh 共用） |
+| `~/.hermes/memory.db` | 118M | 2,141 | ✅ **已建**（10-20 迁移） | **生产**（Hermes + dsh 共用） |
 | `var/memory-sandbox.db` | 253M | 2,100 | ✅ 有 | 沙箱（P0-P4 实验） |
 | `~/.openclaw/state/memorykit-overlay.db` | 964K | 29 | ❌ 无 | overlay 默认库（旧，几乎没用） |
 | 沙箱 `corpus_chunks` | — | 18,361 块 | — | 技能索引（248 SKILL + 1,222 references） |
 
-**生产库没有 `merge_events` 表** → P0 的合并审计在生产不存在。
+**生产库 2026-10-20 14:20 完成迁移**：新增 `status` / `merged_into` / `merged_at` / `vector_stale` 四列 + `merge_events` 表（含 3 个索引）。迁移前全量备份在 `backups/20261020-deploy/`。
 
 ---
 
@@ -85,9 +85,9 @@
 
 | 风险 | 后果 | 状态 |
 |---|---|---|
-| **生产 overlay 跑 10-19 老版** | 8 工具、bridge 报错显示成「没搜到」、agent_id 归属静默失败 | 未修（修补版在 `memory-kit-v2/overlay`，未部署） |
-| **生产 memorykit 停在 ebe67fa** | 合并路径仍会 `[:200]` 截断 + 物理 DELETE | 未修 |
-| **生产库无 merge_events** | 合并不可审计、不可回溯 | 未修 |
+| ~~生产 overlay 跑 10-19 老版~~ | ~~8 工具、错误吞成空结果~~ | ✅ **已修**（10-20：15 工具 + 解释器自检） |
+| ~~生产 memorykit 停在 ebe67fa~~ | ~~`[:200]` 截断 + 物理 DELETE~~ | ✅ **已修**（10-20：6 文件升级 + 库迁移） |
+| ~~生产库无 merge_events~~ | ~~合并不可审计~~ | ✅ **已修**（10-20：表 + 4 列已建） |
 | 自动 learn 存用户原话（P2-J） | 库里 1,892 条 confidence<0.3、60% pending | 语义未拍板 |
 | knowledge 层 0 节点 | 知识层功能闲置 | 未用起来 |
 | 无限上下文三大机制 | 未实现（P4 已证明当前规模不需要） | 搁置 |
