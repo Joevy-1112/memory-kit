@@ -791,6 +791,20 @@ class MemoryLifecycle:
         pairs = [(op["keep_key"], op["remove_key"]) for op in merge_ops]
 
         # ── 4) 写库（dry_run 跳过）──
+        # P0 补漏（2026-10-20）：dedupe 合并后必须重嵌。
+        # 原实现只写 content/importance，vector 停在旧内容上 —— 语义检索继续用
+        # 旧向量匹配新内容，越合并越偏（与 learn 路径的 _merge_writeback 不一致）。
+        # 重嵌放在事务外（网络调用，不持锁）。
+        vec_updates = {}
+        if not dry_run:
+            for keep_key, (content, _imp) in keep_final.items():
+                old_row = self._conn.execute(
+                    "SELECT id, content FROM memories WHERE key=?", (keep_key,)
+                ).fetchone()
+                if old_row and (old_row["content"] or "") != content:
+                    nvec, nsparse = self._embed_with_sparse(content[:5000])
+                    vec_updates[keep_key] = (nvec, nsparse, old_row["id"])
+
         if not dry_run:
             with self._tx():
                 for op in merge_ops:
@@ -806,10 +820,34 @@ class MemoryLifecycle:
                          op["anchored_key"], op["decision"], op["reason"],
                          op["would_veto"]))
                 for keep_key, (content, imp) in keep_final.items():
-                    self._conn.execute(
-                        "UPDATE memories SET content=?, importance=?, "
-                        "updated_at=datetime('now','localtime') WHERE key=?",
-                        (content, imp, keep_key))
+                    vu = vec_updates.get(keep_key)
+                    if vu is None:
+                        # 内容未变（或 dry_run）：向量不动
+                        self._conn.execute(
+                            "UPDATE memories SET content=?, importance=?, "
+                            "updated_at=datetime('now','localtime') WHERE key=?",
+                            (content, imp, keep_key))
+                    elif vu[0]:
+                        # 重嵌成功：新向量 + 解除 stale
+                        nvec, nsparse, _mid = vu
+                        self._conn.execute(
+                            "UPDATE memories SET content=?, importance=?, "
+                            "vector=?, vector_bin=?, sparse=?, vector_stale=0, "
+                            "updated_at=datetime('now','localtime') WHERE key=?",
+                            (content, imp, json.dumps(nvec),
+                             struct.pack(f'{len(nvec)}f', *nvec),
+                             json.dumps(nsparse) if nsparse else None, keep_key))
+                    else:
+                        # 重嵌失败：标记 stale（旧向量不再可信），写 dirty 等重嵌
+                        nvec, nsparse, mid = vu
+                        self._conn.execute(
+                            "UPDATE memories SET content=?, importance=?, "
+                            "vector_stale=1, "
+                            "updated_at=datetime('now','localtime') WHERE key=?",
+                            (content, imp, keep_key))
+                        self._signal_dirty(keep_key, mid)
+                        logger.warning(
+                            "[dedupe] 合并后重嵌失败 key=%s → vector_stale=1", keep_key)
                 for op in merge_ops:
                     self._conn.execute(
                         "UPDATE memories SET status='merged', merged_into=?, "

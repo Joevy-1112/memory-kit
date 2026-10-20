@@ -10,7 +10,7 @@
 
 | 路径 | 是什么 | git | 版本 | 状态 |
 |---|---|---|---|---|
-| `/home/joe/memory-kit` | **memorykit 库（生产依赖这个）** | `ebe67fa` + 工作区 | 10-20 | ✅ **代码已升级**：6 个 memorykit/*.py 从 v2 复制（git HEAD 未动，工作区 dirty） |
+| `/home/joe/memory-kit` | **memorykit 库（生产依赖这个）** | `ebe67fa` + 工作区 | 10-20 | ✅ 代码已升级（6 文件 + corpus.py）；⚠️ git HEAD 仍旧、工作区 dirty |
 | `/home/joe/memory-kit-v2` | memorykit 沙箱（今天 P0-P4 都在这） | `e07d116` | 10-20 | 领先生产 **943 行**（仅 lifecycle.py） |
 | `/home/joe/memorykit-overlay` | **overlay 生产部署目录** | 非 git | 10-20 | ✅ **已升级**：15 个 MCP 工具、解释器自检、错误不再吞 |
 
@@ -26,11 +26,11 @@
 | 进程 | PID | 端口 | 读哪个库 | 配置 |
 |---|---|---|---|---|
 | Hermes gateway | 2130 | — | `~/.hermes/memory.db` | `~/.hermes/config.yaml` |
-| dsh web（飞书 bot） | 234710 | 8010 | `~/.hermes/memory.db` | `~/.dsh/cordis.patch.yml` |
-| └ MCP 记忆桥 | 234741 | stdio | `~/.hermes/memory.db` | 同上（`memory-memorykit`） |
+| dsh web（飞书 bot） | 295826 | 8010 | `~/.hermes/memory.db` | `~/.dsh/cordis.patch.yml` |
+| └ MCP 记忆桥 | 295855 | stdio | `~/.hermes/memory.db` | 同上（`memory-memorykit`，15 工具） |
 | llama-embedding (bge-m3) | 273253 | 8082 | — | `/etc/systemd/system/llama-embedding.service` |
 
-- dsh 启动于 **08:27**，早于 `memory-context` 插件挂载 → **web profile 尚未加载该插件**
+- dsh 于 **14:22 重启**（部署后），已加载 `memory-context` 插件 + 15 工具版记忆桥
 - headless profile 每次新起 → 已生效（实测见 §4）
 - `memory-context` 插件：`/home/joe/.dsh/memory-context/`（149 行，9/9 单测）
 
@@ -78,6 +78,21 @@
 | 7 | P4 B 方案（digest + top-k）vs A（静态全量） | ❌ **B 全面落后**：R@3 65.5% vs 93.1%；成本按 cache 计费只差 1.5× → **P3 不做** | 10-20 |
 | 8 | P2 references 纳入索引 | ✅ R@1 37.9→44.8、R@10 69.0→82.8（但没解决根本问题） | 10-20 |
 | 9 | 「耳机电池改 type-C」query | 覆盖空档（活跃语料无对应正文），不是召回错 | 10-20 |
+
+### 5.1 dsh 外审发现（2026-10-20 14:35，已独立复现并修复）
+
+**`deduplicate()` 合并后不刷新向量** —— P0 把 learn 路径的写回收口到 `_merge_writeback`，
+但 dedupe 是第二条写回路径，只写 content/importance：
+
+```
+dedupe: merged=1
+content 变了: True
+vector  变了: False      ← 语义检索继续用旧向量匹配新内容
+vector_stale: 0          ← 而且没标记不可信
+```
+
+已修（`lifecycle.py` §4 写库前预计算重嵌）：内容变了 → 重嵌 vector/vector_bin/sparse；
+失败 → `vector_stale=1` + dirty 信号。回归测试 `tests/test_p0_dedupe_rewrite.py`（4 用例）。
 
 ---
 
